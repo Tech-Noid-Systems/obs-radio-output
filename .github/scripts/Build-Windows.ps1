@@ -47,7 +47,7 @@ function Build {
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
-    $CmakeArgs = @('--preset', "windows-ci-${Target}")
+    $CmakeArgs = @('--preset', "windows-ci-${Target}", '-DLibShout_ROOT=C:/msys64/mingw64')
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 
