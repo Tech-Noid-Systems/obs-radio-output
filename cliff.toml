@@ -43,7 +43,7 @@ commit_parsers = [
 
 protect_breaking_commits = true
 filter_commits = true
-tag_pattern = "v[0-9].*"
+tag_pattern = "[0-9].*"
 skip_tags = ""
 ignore_tags = ""
 topo_order = false
