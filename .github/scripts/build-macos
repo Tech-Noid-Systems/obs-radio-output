@@ -140,11 +140,14 @@ build() {
   pushd /tmp/icecast-libshout
 
   # arm64 slice — use arm64 libogg; disable optional deps to avoid arch mismatch
+  # -Wno-error=implicit-function-declaration: libshout 2.4.6 legacy.c/icy.c miss
+  # stdlib.h/stdio.h includes; Apple Clang 16 promotes this warning to an error.
   mkdir build-arm64 && pushd build-arm64
   PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-arm64 \
       --without-openssl --without-theora --without-speex --without-opus \
-      CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
+      CFLAGS="-arch arm64 -Wno-error=implicit-function-declaration" \
+      LDFLAGS="-arch arm64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
@@ -153,7 +156,8 @@ build() {
   PKG_CONFIG_LIBDIR=/tmp/libogg-x86_64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-x86_64 \
       --without-openssl --without-theora --without-speex --without-opus \
-      CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
+      CFLAGS="-arch x86_64 -Wno-error=implicit-function-declaration" \
+      LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
