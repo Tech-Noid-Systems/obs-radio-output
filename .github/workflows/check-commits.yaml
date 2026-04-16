@@ -1,0 +1,32 @@
+name: Check Commits 📝
+on:
+  workflow_call:
+jobs:
+  check-commits:
+    name: Check Conventional Commits 📝
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check Conventional Commits 📝
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          : Check Conventional Commits 📝
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\(.+\))?!?: .+'
+
+          git fetch origin "${BASE_REF}"
+          failed=0
+
+          while IFS= read -r msg; do
+            [[ -z "${msg}" ]] && continue
+            if ! [[ "${msg}" =~ ${pattern} ]]; then
+              echo "::error::Non-conventional commit message: ${msg}"
+              failed=1
+            fi
+          done < <(git log --format='%s' "origin/${BASE_REF}..HEAD")
+
+          exit ${failed}
