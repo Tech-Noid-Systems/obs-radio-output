@@ -11,8 +11,10 @@
 !.gersemirc
 !.gitignore
 !buildspec.json
+!CHANGELOG.md
 !CMakeLists.txt
 !CMakePresets.json
+!cliff.toml
 !LICENSE
 !README.md
 
