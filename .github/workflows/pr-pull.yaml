@@ -19,6 +19,12 @@ jobs:
     permissions:
       contents: read
 
+  check-commits:
+    name: Check Commits 📝
+    uses: ./.github/workflows/check-commits.yaml
+    permissions:
+      contents: read
+
   build-project:
     name: Build Project 🧱
     uses: ./.github/workflows/build-project.yaml
