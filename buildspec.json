@@ -33,13 +33,13 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "com.example.plugintemplate-for-obs"
+            "bundleId": "systems.technoid.obs-radio-output"
         }
     },
-    "name": "plugintemplate-for-obs",
-    "displayName": "Plugin Template for OBS",
-    "version": "1.0.0",
-    "author": "Your Name Here",
-    "website": "https://example.com",
-    "email": "me@example.com"
+    "name": "obs-radio-output",
+    "displayName": "Radio Output",
+    "version": "0.1.0",
+    "author": "Aaron Cupp",
+    "website": "https://github.com/tech-noid-systems/obs-radio-output",
+    "email": "mrcupp@mrcupp.com"
 }
