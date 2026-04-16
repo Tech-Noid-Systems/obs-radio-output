@@ -119,7 +119,6 @@ build() {
   # arm64 slice
   mkdir build-arm64 && pushd build-arm64
   ../configure --prefix=/tmp/libshout-arm64 \
-    --host=aarch64-apple-darwin \
     CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
@@ -127,7 +126,6 @@ build() {
   # x86_64 slice
   mkdir build-x86_64 && pushd build-x86_64
   ../configure --prefix=/tmp/libshout-x86_64 \
-    --host=x86_64-apple-darwin \
     CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
