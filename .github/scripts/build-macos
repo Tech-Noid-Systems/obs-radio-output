@@ -112,7 +112,7 @@ build() {
   }
 
   log_group "Building Universal libshout..."
-  git clone https://gitlab.xiph.org/xiph/icecast-libshout.git /tmp/icecast-libshout
+  git clone --recursive https://gitlab.xiph.org/xiph/icecast-libshout.git /tmp/icecast-libshout
   pushd /tmp/icecast-libshout
   ./autogen.sh
 
