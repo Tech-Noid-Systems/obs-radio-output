@@ -102,6 +102,7 @@ build() {
   if (( debug )) cmake_args+=(--debug-output)
 
   cmake_args+=(--preset 'macos-ci')
+  cmake_args+=(-DLibShout_ROOT=/tmp/libshout-universal)
 
   typeset -gx NSUnbufferedIO=YES
 
@@ -109,6 +110,37 @@ build() {
   if (( codesign )) && [[ -z ${CODESIGN_TEAM} ]] {
     typeset -gx CODESIGN_TEAM="$(print "${CODESIGN_IDENT}" | /usr/bin/sed -En 's/.+\((.+)\)/\1/p')"
   }
+
+  log_group "Building Universal libshout..."
+  git clone https://gitlab.xiph.org/xiph/icecast-libshout.git /tmp/icecast-libshout
+  pushd /tmp/icecast-libshout
+  ./autogen.sh
+
+  # arm64 slice
+  mkdir build-arm64 && pushd build-arm64
+  ../configure --prefix=/tmp/libshout-arm64 \
+    --host=aarch64-apple-darwin \
+    CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  # x86_64 slice
+  mkdir build-x86_64 && pushd build-x86_64
+  ../configure --prefix=/tmp/libshout-x86_64 \
+    --host=x86_64-apple-darwin \
+    CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  # Merge with lipo
+  mkdir -p /tmp/libshout-universal/lib /tmp/libshout-universal/include
+  lipo -create \
+    /tmp/libshout-arm64/lib/libshout.dylib \
+    /tmp/libshout-x86_64/lib/libshout.dylib \
+    -output /tmp/libshout-universal/lib/libshout.dylib
+  cp -r /tmp/libshout-arm64/include/shout /tmp/libshout-universal/include/
+  popd
+  log_group
 
   log_group "Configuring ${product_name}..."
   cmake -S ${project_root} ${cmake_args}
