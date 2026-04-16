@@ -1,59 +1,81 @@
-# OBS Plugin Template
+# obs-radio-output
 
-## Introduction
+> **Third-party community plugin** — this project is not affiliated with or endorsed by the OBS Project.
 
-The plugin template is meant to be used as a starting point for OBS Studio plugin development. It includes:
+Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio servers — no external software required. Eliminates the need to run BUTT (Broadcast Using This Tool) or any other sidecar application alongside OBS.
 
-* Boilerplate plugin source code
-* A CMake project file
-* GitHub Actions workflows and repository actions
+## Features
 
-## Supported Build Environments
+- Native OBS output — appears alongside built-in outputs, configurable from within OBS
+- Icecast 2.x support (SHOUTcast coming in a future release)
+- Opus and MP3 audio encoding
+- Auto-reconnect on dropped connections
+- Connection status display
+- macOS (Universal Binary), Windows (x64), and Linux (x86_64) support
 
-| Platform  | Tool   |
-|-----------|--------|
-| Windows   | Visual Studio 17 2022 |
-| macOS     | XCode 16.0 |
-| Windows, macOS  | CMake 3.30.5 |
-| Ubuntu 24.04 | CMake 3.28.3 |
-| Ubuntu 24.04 | `ninja-build` |
-| Ubuntu 24.04 | `pkg-config`
-| Ubuntu 24.04 | `build-essential` |
+## Installation
 
-## Quick Start
+> Installation packages will be available once the plugin reaches a stable release. Until then, build from source (see below).
 
-An absolute bare-bones [Quick Start Guide](https://github.com/obsproject/obs-plugintemplate/wiki/Quick-Start-Guide) is available in the wiki.
+**OBS Plugin Browser:** The plugin will be listed in the OBS Plugin Browser after the first stable release.
 
-## Documentation
+**Manual install:** Download the appropriate package for your platform from the [Releases](https://github.com/tech-noid-systems/obs-radio-output/releases) page and follow the instructions for your OS.
 
-All documentation can be found in the [Plugin Template Wiki](https://github.com/obsproject/obs-plugintemplate/wiki).
+## Building from Source
 
-Suggested reading to get up and running:
+### Requirements
 
-* [Getting started](https://github.com/obsproject/obs-plugintemplate/wiki/Getting-Started)
-* [Build system requirements](https://github.com/obsproject/obs-plugintemplate/wiki/Build-System-Requirements)
-* [Build system options](https://github.com/obsproject/obs-plugintemplate/wiki/CMake-Build-System-Options)
+- CMake 3.28 or later
+- A C compiler (Xcode on macOS, Visual Studio 2022 on Windows, GCC/Clang on Linux)
+- libshout 2.4.x
+- OBS Studio 31.x headers (fetched automatically by CMake)
 
-## GitHub Actions & CI
+### macOS
 
-Default GitHub Actions workflows are available for the following repository actions:
+```bash
+git clone https://github.com/tech-noid-systems/obs-radio-output.git
+cd obs-radio-output
+cmake --preset macos
+cmake --build --preset macos
+```
 
-* `push`: Run for commits or tags pushed to `master` or `main` branches.
-* `pr-pull`: Run when a Pull Request has been pushed or synchronized.
-* `dispatch`: Run when triggered by the workflow dispatch in GitHub's user interface.
-* `build-project`: Builds the actual project and is triggered by other workflows.
-* `check-format`: Checks CMake and plugin source code formatting and is triggered by other workflows.
+### Windows
 
-The workflows make use of GitHub repository actions (contained in `.github/actions`) and build scripts (contained in `.github/scripts`) which are not needed for local development, but might need to be adjusted if additional/different steps are required to build the plugin.
+```powershell
+git clone https://github.com/tech-noid-systems/obs-radio-output.git
+cd obs-radio-output
+cmake --preset windows-x64
+cmake --build --preset windows-x64
+```
 
-### Retrieving build artifacts
+### Linux
 
-Successful builds on GitHub Actions will produce build artifacts that can be downloaded for testing. These artifacts are commonly simple archives and will not contain package installers or installation programs.
+```bash
+git clone https://github.com/tech-noid-systems/obs-radio-output.git
+cd obs-radio-output
+sudo apt install libshout3-dev
+cmake --preset linux-x86_64
+cmake --build --preset linux-x86_64
+```
 
-### Building a Release
+## Usage
 
-To create a release, an appropriately named tag needs to be pushed to the `main`/`master` branch using semantic versioning (e.g., `12.3.4`, `23.4.5-beta2`). A draft release will be created on the associated repository with generated installer packages or installation programs attached as release artifacts.
+1. Open OBS Studio and go to **Settings → Stream**
+2. Select **Radio Output** from the Service dropdown
+3. Enter your Icecast server hostname, port, mount point, and password
+4. Select your audio codec and bitrate
+5. Click **Start Streaming**
 
-## Signing and Notarizing on macOS
+## Reporting Bugs
 
-Basic concepts of codesigning and notarization on macOS are explained in the correspodning [Wiki article](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS) which has a specific section for the [GitHub Actions setup](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS#setting-up-code-signing-for-github-actions).
+Please open an issue on the [GitHub Issues](https://github.com/tech-noid-systems/obs-radio-output/issues) page. Include your OBS version, OS, and the relevant section of your OBS log file.
+
+## License
+
+GPL-2.0-or-later. See [LICENSE](LICENSE).
+
+This plugin links against [libobs](https://github.com/obsproject/obs-studio), which is licensed GPL-2.0. As a derived work, this plugin must carry a GPL-compatible license.
+
+## AI Disclosure
+
+Development of this plugin involved the use of AI-assisted tooling. Per OBS forum policy, this is disclosed here and will be included in the plugin's forum submission description.
