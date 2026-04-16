@@ -1,3 +1,4 @@
+# gersemi: off
 find_path(
   LibShout_INCLUDE_DIR
   NAMES shout/shout.h
@@ -34,3 +35,4 @@ if(LibShout_FOUND AND NOT TARGET LibShout::LibShout)
       INTERFACE_INCLUDE_DIRECTORIES "${LibShout_INCLUDE_DIR}"
   )
 endif()
+# gersemi: on
