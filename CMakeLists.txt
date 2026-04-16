@@ -13,10 +13,15 @@ include(compilerconfig)
 include(defaults)
 include(helpers)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+
+find_package(LibShout REQUIRED)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
