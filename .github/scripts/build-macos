@@ -112,9 +112,11 @@ build() {
   }
 
   log_group "Building Universal libogg (libshout dependency)..."
-  git clone --recursive https://github.com/xiph/ogg.git /tmp/libogg-src
+  curl -sSL https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz \
+    -o /tmp/libogg.tar.gz
+  tar -xzf /tmp/libogg.tar.gz -C /tmp
+  mv /tmp/libogg-1.3.5 /tmp/libogg-src
   pushd /tmp/libogg-src
-  ./autogen.sh
 
   mkdir build-arm64 && pushd build-arm64
   ../configure --prefix=/tmp/libogg-arm64 \
@@ -131,22 +133,26 @@ build() {
   log_group
 
   log_group "Building Universal libshout..."
-  git clone --recursive https://gitlab.xiph.org/xiph/icecast-libshout.git /tmp/icecast-libshout
+  curl -sSL https://downloads.xiph.org/releases/libshout/libshout-2.4.6.tar.gz \
+    -o /tmp/libshout.tar.gz
+  tar -xzf /tmp/libshout.tar.gz -C /tmp
+  mv /tmp/libshout-2.4.6 /tmp/icecast-libshout
   pushd /tmp/icecast-libshout
-  ./autogen.sh
 
-  # arm64 slice — use arm64 libogg
+  # arm64 slice — use arm64 libogg; disable optional deps to avoid arch mismatch
   mkdir build-arm64 && pushd build-arm64
   PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-arm64 \
+      --without-openssl --without-theora --without-speex --without-opus \
       CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
-  # x86_64 slice — use x86_64 libogg
+  # x86_64 slice — use x86_64 libogg; disable optional deps to avoid arch mismatch
   mkdir build-x86_64 && pushd build-x86_64
   PKG_CONFIG_LIBDIR=/tmp/libogg-x86_64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-x86_64 \
+      --without-openssl --without-theora --without-speex --without-opus \
       CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
