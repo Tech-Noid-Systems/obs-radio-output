@@ -11,6 +11,10 @@ find_path(
     $ENV{LIBSHOUT_INCLUDE}
 )
 
+if(WIN32)
+  list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a .dll.a)
+endif()
+
 find_library(
   LibShout_LIBRARY
   NAMES shout libshout
