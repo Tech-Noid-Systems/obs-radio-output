@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
 obs-radio-output
 Copyright (C) 2026 Aaron Cupp <mrcupp@mrcupp.com>
