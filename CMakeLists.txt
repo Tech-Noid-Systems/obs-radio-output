@@ -20,8 +20,19 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
-find_package(LibShout REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
+if(WIN32)
+  # MSVC cannot link MinGW-built libraries; make libshout optional on Windows
+  # until MSVC-compatible binaries are available.
+  find_package(LibShout QUIET)
+  if(LibShout_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
+  else()
+    message(WARNING "LibShout not found — Windows streaming support requires libshout at build time")
+  endif()
+else()
+  find_package(LibShout REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
+endif()
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
