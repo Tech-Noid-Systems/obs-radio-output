@@ -39,16 +39,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           style: ''
-          tidy-checks: >-
-            bugprone-*,
-            cert-*,
-            clang-analyzer-*,
-            misc-*,
-            performance-*,
-            portability-*,
-            readability-*,
-            -readability-magic-numbers,
-            -readability-function-cognitive-complexity
+          tidy-checks: ''
           database: build
           files-changed-only: true
           thread-comments: true

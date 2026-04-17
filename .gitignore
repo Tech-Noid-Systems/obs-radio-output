@@ -22,6 +22,9 @@
 # Exclude generated local dev helpers
 /build-and-install-macos.sh
 
+# Exclude clang-tidy local build directory
+/build-tidy
+
 # Exclude lock files
 *.lock.json
 
