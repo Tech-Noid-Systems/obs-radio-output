@@ -155,7 +155,7 @@ xcodebuild \
 
 echo "Installing to OBS plugins directory..."
 cmake --install build_macos --config RelWithDebInfo --prefix release/RelWithDebInfo
-cp -r release/RelWithDebInfo/obs-radio-output \
+cp -r "release/RelWithDebInfo/obs-radio-output.plugin" \
   "${HOME}/Library/Application Support/obs-studio/plugins/"
 
 echo ""
