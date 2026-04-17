@@ -26,11 +26,11 @@ struct radio_output {
 	int port;
 	char *mount;
 	char *password;
-	bool use_tls;  // Phase 2
-	int protocol;  // SHOUT_PROTOCOL_HTTP or SHOUT_PROTOCOL_ICY
+	bool use_tls; // Phase 2
+	int protocol; // SHOUT_PROTOCOL_HTTP or SHOUT_PROTOCOL_ICY
 
 	// Encoder settings
-	int codec;   // RADIO_CODEC_OPUS, RADIO_CODEC_MP3, etc.
+	int codec; // RADIO_CODEC_OPUS, RADIO_CODEC_MP3, etc.
 	int bitrate;
 
 	// Runtime state
