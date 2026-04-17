@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # run-clang-tidy.sh — Run clang-tidy locally using the project's .clang-tidy config.
 #
-# Usage:
+# NOTE: macOS is not supported — OBS requires the Xcode CMake generator, which
+# does not produce compile_commands.json and macOS SIP prevents bear from
+# intercepting Xcode compiler calls.  Use Docker or rely on the CI check.
+#
+# Docker usage (from repo root):
+#   docker run --rm -v "$(pwd):/src" ubuntu:24.04 bash /src/scripts/run-clang-tidy.sh
+#
+# Linux usage:
 #   ./scripts/run-clang-tidy.sh              # check all src/ files
 #   ./scripts/run-clang-tidy.sh src/radio-output.c   # check one file
 #
-# Requirements (macOS):  brew install llvm bear
-# Requirements (Linux):  apt-get install clang-tidy
+# Requirements (Linux): apt-get install clang-tidy cmake libshout3-dev
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,55 +45,37 @@ echo ""
 # ---------------------------------------------------------------------------
 # Generate compile_commands.json
 #
-# macOS: Xcode generator (required by OBS) does not support
-#        CMAKE_EXPORT_COMPILE_COMMANDS.  We use 'bear' to intercept compiler
-#        calls during a real build and produce the database that way.
-#        First run is slow; subsequent runs skip the build step.
+# macOS: OBS requires the Xcode generator, which does not support
+#        CMAKE_EXPORT_COMPILE_COMMANDS.  macOS SIP also blocks bear from
+#        intercepting Xcode's compiler calls.  Run via Docker instead:
+#
+#   docker run --rm -v "$(pwd):/src" ubuntu:24.04 bash /src/scripts/run-clang-tidy.sh
 #
 # Linux: standard cmake flag works fine with the Makefile/Ninja generator.
 # ---------------------------------------------------------------------------
 if [[ "$(uname)" == "Darwin" ]]; then
-    if [[ ! -f "${COMPILE_DB}" ]]; then
-        if ! command -v bear &>/dev/null; then
-            echo "error: 'bear' is required for local clang-tidy on macOS." >&2
-            echo "Install it with: brew install bear" >&2
-            exit 1
-        fi
+    echo "macOS is not supported for local clang-tidy runs." >&2
+    echo "" >&2
+    echo "OBS requires the Xcode CMake generator, which does not produce" >&2
+    echo "compile_commands.json. macOS SIP also prevents bear from intercepting" >&2
+    echo "Xcode's compiler calls." >&2
+    echo "" >&2
+    echo "Use Docker to run this script on Linux instead:" >&2
+    echo "  docker run --rm -v \"\$(pwd):/src\" ubuntu:24.04 bash /src/scripts/run-clang-tidy.sh" >&2
+    echo "" >&2
+    echo "Or rely on the clang-tidy CI check which runs on every PR." >&2
+    exit 1
+fi
 
-        echo "compile_commands.json not found — configuring and building (first run is slow)..."
-        cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -G Xcode
-
-        # Build with bear to capture compile commands.
-        # Signing disabled so the local build doesn't fail without a cert.
-        XCODEPROJ="$(find "${BUILD_DIR}" -maxdepth 1 -name "*.xcodeproj" | head -1)"
-        if [[ -z "${XCODEPROJ}" ]]; then
-            echo "error: no .xcodeproj found in ${BUILD_DIR}" >&2
-            exit 1
-        fi
-
-        bear --output "${COMPILE_DB}" -- \
-            xcodebuild \
-                -project "${XCODEPROJ}" \
-                -configuration RelWithDebInfo \
-                CODE_SIGN_IDENTITY="" \
-                CODE_SIGNING_REQUIRED=NO \
-                CODE_SIGNING_ALLOWED=NO \
-                -quiet
-        echo "compile_commands.json generated."
-    else
-        echo "Using existing compile_commands.json (delete build-tidy/ to rebuild)."
-    fi
+if [[ ! -f "${COMPILE_DB}" ]]; then
+    echo "compile_commands.json not found — running cmake configure..."
+    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
 else
-    if [[ ! -f "${COMPILE_DB}" ]]; then
-        echo "compile_commands.json not found — running cmake configure..."
-        cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo
-    else
-        # Refresh the existing cache silently
-        cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null 2>&1
-    fi
+    # Refresh the existing cache silently
+    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null 2>&1
 fi
 
 echo ""
