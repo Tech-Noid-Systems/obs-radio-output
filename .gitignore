@@ -19,6 +19,9 @@
 !LICENSE
 !README.md
 
+# Exclude generated local dev helpers
+/build-and-install-macos.sh
+
 # Exclude lock files
 *.lock.json
 
