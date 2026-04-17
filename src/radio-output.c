@@ -26,7 +26,8 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->bitrate = (int)obs_data_get_int(settings, SETTING_BITRATE);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
-	context->reconnect_delay_ms = (int)obs_data_get_int(settings, SETTING_RECONNECT_DELAY);
+	/* Setting stores seconds; convert to milliseconds for internal use. */
+	context->reconnect_delay_ms = (int)obs_data_get_int(settings, SETTING_RECONNECT_DELAY) * 1000;
 	context->reconnect_max_retries = (int)obs_data_get_int(settings, SETTING_RECONNECT_MAX);
 }
 
@@ -198,15 +199,81 @@ static void radio_output_encoded_packet(void *data, struct encoder_packet *packe
 #endif
 }
 
+static bool reconnect_toggled(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+{
+	UNUSED_PARAMETER(p);
+	bool enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
+	obs_property_set_visible(obs_properties_get(props, SETTING_RECONNECT_DELAY), enabled);
+	obs_property_set_visible(obs_properties_get(props, SETTING_RECONNECT_MAX), enabled);
+	return true;
+}
+
 static obs_properties_t *radio_output_get_properties(void *data)
 {
 	UNUSED_PARAMETER(data);
-	return NULL;
+
+	obs_properties_t *props = obs_properties_create();
+
+	/* ---- Server ---- */
+	obs_properties_t *server = obs_properties_create();
+	obs_properties_add_text(server, SETTING_HOST, obs_module_text("RadioOutput.Server.Host"), OBS_TEXT_DEFAULT);
+	obs_properties_add_int(server, SETTING_PORT, obs_module_text("RadioOutput.Server.Port"), 1, 65535, 1);
+	obs_properties_add_text(server, SETTING_MOUNT, obs_module_text("RadioOutput.Server.Mount"), OBS_TEXT_DEFAULT);
+	obs_properties_add_text(server, SETTING_PASSWORD, obs_module_text("RadioOutput.Server.Password"),
+				OBS_TEXT_PASSWORD);
+	obs_properties_add_group(props, "server", obs_module_text("RadioOutput.Server.Group"), OBS_GROUP_NORMAL,
+				 server);
+
+	/* ---- Audio ---- */
+	obs_properties_t *audio = obs_properties_create();
+
+	obs_property_t *codec = obs_properties_add_list(audio, SETTING_CODEC,
+							obs_module_text("RadioOutput.Audio.Codec"), OBS_COMBO_TYPE_LIST,
+							OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(codec, obs_module_text("RadioOutput.Audio.Codec.Opus"), RADIO_CODEC_OPUS);
+	obs_property_list_add_int(codec, obs_module_text("RadioOutput.Audio.Codec.MP3"), RADIO_CODEC_MP3);
+
+	obs_property_t *bitrate = obs_properties_add_list(audio, SETTING_BITRATE,
+							  obs_module_text("RadioOutput.Audio.Bitrate"),
+							  OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	static const int bitrate_values[] = {32, 64, 96, 128, 160, 192, 256, 320};
+	for (size_t idx = 0; idx < sizeof(bitrate_values) / sizeof(bitrate_values[0]); idx++) {
+		char label[8];
+		snprintf(label, sizeof(label), "%d", bitrate_values[idx]);
+		obs_property_list_add_int(bitrate, label, bitrate_values[idx]);
+	}
+
+	obs_properties_add_group(props, "audio", obs_module_text("RadioOutput.Audio.Group"), OBS_GROUP_NORMAL, audio);
+
+	/* ---- Auto-Reconnect ---- */
+	obs_properties_t *reconnect = obs_properties_create();
+
+	obs_property_t *toggle =
+		obs_properties_add_bool(reconnect, SETTING_RECONNECT, obs_module_text("RadioOutput.Reconnect.Enable"));
+	obs_property_set_modified_callback(toggle, reconnect_toggled);
+
+	obs_properties_add_int(reconnect, SETTING_RECONNECT_DELAY, obs_module_text("RadioOutput.Reconnect.Delay"), 1,
+			       60, 1);
+	obs_properties_add_int(reconnect, SETTING_RECONNECT_MAX, obs_module_text("RadioOutput.Reconnect.Max"), 0, 100,
+			       1);
+
+	obs_properties_add_group(props, "reconnect", obs_module_text("RadioOutput.Reconnect.Group"), OBS_GROUP_NORMAL,
+				 reconnect);
+
+	return props;
 }
 
 static void radio_output_get_defaults(obs_data_t *settings)
 {
-	UNUSED_PARAMETER(settings);
+	obs_data_set_default_string(settings, SETTING_HOST, "localhost");
+	obs_data_set_default_int(settings, SETTING_PORT, 8000);
+	obs_data_set_default_string(settings, SETTING_MOUNT, "/stream");
+	obs_data_set_default_string(settings, SETTING_PASSWORD, "");
+	obs_data_set_default_int(settings, SETTING_CODEC, RADIO_CODEC_OPUS);
+	obs_data_set_default_int(settings, SETTING_BITRATE, 128);
+	obs_data_set_default_bool(settings, SETTING_RECONNECT, true);
+	obs_data_set_default_int(settings, SETTING_RECONNECT_DELAY, 5);
+	obs_data_set_default_int(settings, SETTING_RECONNECT_MAX, 10);
 }
 
 struct obs_output_info radio_output_info = {
