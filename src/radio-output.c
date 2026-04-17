@@ -79,22 +79,31 @@ static bool radio_output_start(void *data)
 	return false;
 #else
 	// --- Set up audio encoder ---
-	const char *encoder_id = (context->codec == RADIO_CODEC_MP3) ? "ffmpeg_mp3" : "opus";
+	// If the caller (test script or future dock UI) pre-attached an encoder, use it.
+	// Otherwise fall back to creating one from plugin settings so the output is self-contained.
+	obs_encoder_t *audio_enc = obs_output_get_audio_encoder(context->output, 0);
+	if (audio_enc) {
+		/* Drop the extra reference returned by the getter; the output holds its own. */
+		obs_encoder_release(audio_enc);
+		obs_log(LOG_INFO, "Using pre-attached audio encoder");
+	} else {
+		const char *encoder_id = (context->codec == RADIO_CODEC_MP3) ? "ffmpeg_mp3" : "opus";
 
-	obs_data_t *enc_settings = obs_data_create();
-	obs_data_set_int(enc_settings, "bitrate", context->bitrate);
+		obs_data_t *enc_settings = obs_data_create();
+		obs_data_set_int(enc_settings, "bitrate", context->bitrate);
 
-	obs_encoder_t *audio_enc = obs_audio_encoder_create(encoder_id, "radio_output_audio", enc_settings, 0, NULL);
-	obs_data_release(enc_settings);
+		audio_enc = obs_audio_encoder_create(encoder_id, "radio_output_audio", enc_settings, 0, NULL);
+		obs_data_release(enc_settings);
 
-	if (!audio_enc) {
-		obs_log(LOG_ERROR, "Failed to create audio encoder '%s'", encoder_id);
-		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
-		return false;
+		if (!audio_enc) {
+			obs_log(LOG_ERROR, "Failed to create audio encoder '%s'", encoder_id);
+			obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
+			return false;
+		}
+
+		obs_output_set_audio_encoder(context->output, audio_enc, 0);
+		obs_encoder_release(audio_enc);
 	}
-
-	obs_output_set_audio_encoder(context->output, audio_enc, 0);
-	obs_encoder_release(audio_enc);
 
 	// --- Configure libshout ---
 	context->shout = shout_new();
@@ -134,7 +143,15 @@ static bool radio_output_start(void *data)
 	context->reconnect_attempts = 0;
 	obs_log(LOG_INFO, "Connected to %s:%d%s", context->host, context->port, context->mount);
 
-	obs_output_begin_data_capture(context->output, 0);
+	if (!obs_output_begin_data_capture(context->output, 0)) {
+		obs_log(LOG_ERROR, "obs_output_begin_data_capture() failed");
+		shout_close(context->shout);
+		shout_free(context->shout);
+		context->shout = NULL;
+		set_state(context, RADIO_STATE_ERROR);
+		return false;
+	}
+
 	return true;
 #endif
 }
