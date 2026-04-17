@@ -23,30 +23,39 @@ Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio se
 
 ## Building from Source
 
-### Requirements
-
-- CMake 3.28 or later
-- A C compiler (Xcode on macOS, Visual Studio 2022 on Windows, GCC/Clang on Linux)
-- libshout 2.4.x
-- OBS Studio 31.x headers (fetched automatically by CMake)
-
 ### macOS
 
-```bash
+**Prerequisites:** Xcode Command Line Tools and [Homebrew](https://brew.sh). All other
+dependencies (CMake, autotools, libshout) are installed automatically by the setup script.
+
+```zsh
 git clone https://github.com/tech-noid-systems/obs-radio-output.git
 cd obs-radio-output
-cmake --preset macos
-cmake --build --preset macos
+zsh scripts/setup-dev-macos.sh
 ```
 
-### Windows
+The setup script installs dependencies, builds a Universal Binary (arm64 + x86_64) libshout,
+and runs CMake configure. Once it completes, build and install:
 
-```powershell
-git clone https://github.com/tech-noid-systems/obs-radio-output.git
-cd obs-radio-output
-cmake --preset windows-x64
-cmake --build --preset windows-x64
+```zsh
+xcodebuild -project build_macos/obs-radio-output.xcodeproj \
+           -target obs-radio-output \
+           -configuration RelWithDebInfo \
+           ONLY_ACTIVE_ARCH=NO -arch arm64 -arch x86_64
+
+cmake --install build_macos --config RelWithDebInfo \
+      --prefix release/RelWithDebInfo
+
+cp -r release/RelWithDebInfo/obs-radio-output \
+      ~/Library/Application\ Support/obs-studio/plugins/
 ```
+
+Relaunch OBS. Check **Help → Log Files → Current Log** for:
+`[obs-radio-output] plugin loaded successfully`
+
+> **Note:** The libshout build is cached in `/tmp`. If you need to rebuild it (e.g. after a
+> macOS update), delete `/tmp/libogg-universal-done` and `/tmp/libshout-universal-done` and
+> re-run the setup script.
 
 ### Linux
 
@@ -56,6 +65,25 @@ cd obs-radio-output
 sudo apt install libshout3-dev
 cmake --preset linux-x86_64
 cmake --build --preset linux-x86_64
+```
+
+Install the built plugin:
+
+```bash
+cmake --install build_linux_x86_64 --config RelWithDebInfo \
+      --prefix ~/.config/obs-studio/plugins/obs-radio-output
+```
+
+### Windows
+
+Windows builds require Visual Studio 2022 and MSYS2. Full Windows streaming support
+(linking libshout against the MSVC build) is not yet implemented — contributions welcome.
+
+```powershell
+git clone https://github.com/tech-noid-systems/obs-radio-output.git
+cd obs-radio-output
+cmake --preset windows-x64
+cmake --build --preset windows-x64
 ```
 
 ## Usage
