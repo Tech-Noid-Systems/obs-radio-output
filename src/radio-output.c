@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "radio-output.h"
+#include <plugin-support.h>
 
 static const char *radio_output_get_name(void *type_data)
 {
@@ -64,10 +65,81 @@ static void radio_output_destroy(void *data)
 	bfree(context);
 }
 
+static inline void set_state(struct radio_output *context, radio_state_t state)
+{
+	pthread_mutex_lock(&context->state_mutex);
+	context->state = state;
+	pthread_mutex_unlock(&context->state_mutex);
+}
+
 static bool radio_output_start(void *data)
 {
-	UNUSED_PARAMETER(data);
+	struct radio_output *context = data;
+
+#ifndef HAVE_LIBSHOUT
+	obs_log(LOG_WARNING, "Streaming not available — libshout not present on this platform");
+	obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
 	return false;
+#else
+	// --- Set up audio encoder ---
+	const char *encoder_id = (context->codec == RADIO_CODEC_MP3) ? "ffmpeg_mp3" : "opus";
+
+	obs_data_t *enc_settings = obs_data_create();
+	obs_data_set_int(enc_settings, "bitrate", context->bitrate);
+
+	obs_encoder_t *audio_enc = obs_audio_encoder_create(encoder_id, "radio_output_audio", enc_settings, 0, NULL);
+	obs_data_release(enc_settings);
+
+	if (!audio_enc) {
+		obs_log(LOG_ERROR, "Failed to create audio encoder '%s'", encoder_id);
+		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
+		return false;
+	}
+
+	obs_output_set_audio_encoder(context->output, audio_enc, 0);
+	obs_encoder_release(audio_enc);
+
+	// --- Configure libshout ---
+	context->shout = shout_new();
+	if (!context->shout) {
+		obs_log(LOG_ERROR, "shout_new() failed (out of memory?)");
+		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
+		return false;
+	}
+
+	char agent[64];
+	snprintf(agent, sizeof(agent), "obs-radio-output/%s", PLUGIN_VERSION);
+
+	shout_set_host(context->shout, context->host);
+	shout_set_port(context->shout, context->port);
+	shout_set_mount(context->shout, context->mount);
+	shout_set_password(context->shout, context->password);
+	shout_set_agent(context->shout, agent);
+	shout_set_protocol(context->shout, SHOUT_PROTOCOL_HTTP);
+
+	int shout_format = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
+	shout_set_format(context->shout, shout_format);
+
+	// --- Open connection ---
+	set_state(context, RADIO_STATE_CONNECTING);
+
+	int err = shout_open(context->shout);
+	if (err != SHOUTERR_SUCCESS) {
+		obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(context->shout));
+		shout_free(context->shout);
+		context->shout = NULL;
+		set_state(context, RADIO_STATE_ERROR);
+		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
+		return false;
+	}
+
+	set_state(context, RADIO_STATE_CONNECTED);
+	context->reconnect_attempts = 0;
+	obs_log(LOG_INFO, "Connected to %s:%d%s", context->host, context->port, context->mount);
+
+	obs_output_begin_data_capture(context->output, 0);
+	return true;
+#endif
 }
 
 static void radio_output_stop(void *data, uint64_t ts)
