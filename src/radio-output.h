@@ -1,0 +1,63 @@
+#pragma once
+
+#include <obs-module.h>
+#include <shout/shout.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
+#define RADIO_OUTPUT_RECONNECT_MAX       10
+
+typedef enum {
+	RADIO_STATE_DISCONNECTED,
+	RADIO_STATE_CONNECTING,
+	RADIO_STATE_CONNECTED,
+	RADIO_STATE_RECONNECTING,
+	RADIO_STATE_ERROR,
+} radio_state_t;
+
+struct radio_output {
+	obs_output_t *output; // back-pointer to OBS output object
+	shout_t *shout;       // libshout connection handle
+
+	// Connection settings (copied from obs_data at start)
+	char *host;
+	int port;
+	char *mount;
+	char *password;
+	bool use_tls; // Phase 2
+	int protocol; // SHOUT_PROTOCOL_HTTP or SHOUT_PROTOCOL_ICY
+
+	// Encoder settings
+	int codec; // RADIO_CODEC_OPUS, RADIO_CODEC_MP3, etc.
+	int bitrate;
+
+	// Runtime state
+	radio_state_t state;
+	pthread_mutex_t state_mutex;
+
+	// Reconnect
+	bool reconnect_enabled;
+	int reconnect_delay_ms;
+	int reconnect_max_retries;
+	int reconnect_attempts;
+	pthread_t reconnect_thread;
+	bool reconnect_thread_running;
+};
+
+// Codec identifiers
+#define RADIO_CODEC_OPUS   0
+#define RADIO_CODEC_MP3    1
+#define RADIO_CODEC_VORBIS 2 // Phase 2
+
+// Settings key names (used in obs_data_get_* calls)
+#define SETTING_HOST            "host"
+#define SETTING_PORT            "port"
+#define SETTING_MOUNT           "mount"
+#define SETTING_PASSWORD        "password"
+#define SETTING_CODEC           "codec"
+#define SETTING_BITRATE         "bitrate"
+#define SETTING_RECONNECT       "reconnect_enabled"
+#define SETTING_RECONNECT_DELAY "reconnect_delay"
+#define SETTING_RECONNECT_MAX   "reconnect_max"
