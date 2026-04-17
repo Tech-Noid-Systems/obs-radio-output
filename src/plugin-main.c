@@ -24,10 +24,26 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
+/* OQ #3 — MP3 encoder availability diagnostic (temporary, remove after result recorded) */
+static void mp3_encoder_diagnostic(void)
+{
+	static const char *candidates[] = {"ffmpeg_mp3", "mp3_audio_encoder", "libmp3lame"};
+	for (size_t idx = 0; idx < sizeof(candidates) / sizeof(candidates[0]); idx++) {
+		obs_encoder_t *enc = obs_audio_encoder_create(candidates[idx], "mp3_diag", NULL, 0, NULL);
+		if (enc) {
+			obs_log(LOG_INFO, "[mp3-diag] %s: AVAILABLE", candidates[idx]);
+			obs_encoder_release(enc);
+		} else {
+			obs_log(LOG_INFO, "[mp3-diag] %s: NOT AVAILABLE", candidates[idx]);
+		}
+	}
+}
+
 bool obs_module_load(void)
 {
 	obs_register_output(&radio_output_info);
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
+	mp3_encoder_diagnostic();
 	return true;
 }
 
