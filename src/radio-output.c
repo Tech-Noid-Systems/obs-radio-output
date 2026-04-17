@@ -171,7 +171,7 @@ static void radio_output_encoded_packet(void *data, struct encoder_packet *packe
 	if (!context->shout)
 		return;
 
-	int ret = shout_send(context->shout, (const unsigned char *)packet->data, (size_t)packet->size);
+	int ret = shout_send(context->shout, (const unsigned char *)packet->data, packet->size);
 	if (ret != SHOUTERR_SUCCESS) {
 		obs_log(LOG_ERROR, "shout_send() failed: %s", shout_get_error(context->shout));
 		set_state(context, RADIO_STATE_ERROR);
