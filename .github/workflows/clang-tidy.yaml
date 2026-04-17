@@ -1,0 +1,58 @@
+name: Clang-Tidy 🔬
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  clang-tidy:
+    name: Clang-Tidy Analysis 🔬
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build Plugin 🧱
+        uses: ./.github/actions/build-plugin
+        with:
+          target: x86_64
+          config: RelWithDebInfo
+
+      - name: Enable Compile Commands 🗂️
+        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run Clang-Tidy 🔬
+        uses: cpp-linter/cpp-linter-action@v2
+        id: linter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          style: ''
+          tidy-checks: >-
+            bugprone-*,
+            cert-*,
+            clang-analyzer-*,
+            misc-*,
+            performance-*,
+            portability-*,
+            readability-*,
+            -readability-magic-numbers,
+            -readability-function-cognitive-complexity
+          database: build
+          files-changed-only: true
+          thread-comments: true
+          tidy-review: true
+          format-review: false
+          step-summary: true
+          extra-args: '-std=c99'
