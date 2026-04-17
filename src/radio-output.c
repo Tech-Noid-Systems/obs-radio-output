@@ -10,8 +10,22 @@ static const char *radio_output_get_name(void *type_data)
 
 static void radio_output_update(void *data, obs_data_t *settings)
 {
-	UNUSED_PARAMETER(data);
-	UNUSED_PARAMETER(settings);
+	struct radio_output *context = data;
+
+	bfree(context->host);
+	bfree(context->mount);
+	bfree(context->password);
+
+	context->host = bstrdup(obs_data_get_string(settings, SETTING_HOST));
+	context->port = (int)obs_data_get_int(settings, SETTING_PORT);
+	context->mount = bstrdup(obs_data_get_string(settings, SETTING_MOUNT));
+	context->password = bstrdup(obs_data_get_string(settings, SETTING_PASSWORD));
+	context->codec = (int)obs_data_get_int(settings, SETTING_CODEC);
+	context->bitrate = (int)obs_data_get_int(settings, SETTING_BITRATE);
+
+	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
+	context->reconnect_delay_ms = (int)obs_data_get_int(settings, SETTING_RECONNECT_DELAY);
+	context->reconnect_max_retries = (int)obs_data_get_int(settings, SETTING_RECONNECT_MAX);
 }
 
 static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
