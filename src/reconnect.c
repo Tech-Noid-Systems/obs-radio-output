@@ -84,15 +84,14 @@ static void *reconnect_thread_fn(void *data)
 			break;
 
 		context->reconnect_attempts++;
-		obs_log(LOG_INFO, "[reconnect] attempt %d/%d to %s:%d%s ...",
-		        context->reconnect_attempts, context->reconnect_max_retries,
-		        context->host, context->port, context->mount);
+		obs_log(LOG_INFO, "[reconnect] attempt %d/%d to %s:%d%s ...", context->reconnect_attempts,
+			context->reconnect_max_retries, context->host, context->port, context->mount);
 
 		if (attempt_connect(context)) {
 			set_state(context, RADIO_STATE_CONNECTED);
 			context->reconnect_attempts = 0;
-			obs_log(LOG_INFO, "[reconnect] reconnected to %s:%d%s",
-			        context->host, context->port, context->mount);
+			obs_log(LOG_INFO, "[reconnect] reconnected to %s:%d%s", context->host, context->port,
+				context->mount);
 			return NULL;
 		}
 
@@ -100,7 +99,7 @@ static void *reconnect_thread_fn(void *data)
 		if (context->reconnect_max_retries > 0 &&
 		    context->reconnect_attempts >= context->reconnect_max_retries) {
 			obs_log(LOG_ERROR, "[reconnect] max retries (%d) exceeded — giving up",
-			        context->reconnect_max_retries);
+				context->reconnect_max_retries);
 			set_state(context, RADIO_STATE_ERROR);
 			obs_output_signal_stop(context->output, OBS_OUTPUT_ERROR);
 			return NULL;
@@ -148,7 +147,7 @@ void reconnect_start(struct radio_output *context)
 
 	context->reconnect_active = true;
 	obs_log(LOG_INFO, "[reconnect] reconnect thread started (delay %d ms, max %d retries)",
-	        context->reconnect_delay_ms, context->reconnect_max_retries);
+		context->reconnect_delay_ms, context->reconnect_max_retries);
 #endif
 }
 

@@ -50,7 +50,7 @@ struct radio_output {
 
 	// Reconnect thread
 	pthread_t reconnect_thread;
-	bool reconnect_active;          // true = thread was spawned and must be joined
+	bool reconnect_active;           // true = thread was spawned and must be joined
 	volatile bool reconnect_running; // false = signal thread to stop
 };
 
