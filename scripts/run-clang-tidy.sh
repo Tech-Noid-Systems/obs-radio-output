@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${REPO_ROOT}/build"
+BUILD_DIR="${REPO_ROOT}/build-tidy"
 
 # Prefer Homebrew LLVM clang-tidy over Apple's (which lacks many checks)
 CLANG_TIDY=""
