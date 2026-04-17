@@ -1,10 +1,13 @@
 #pragma once
 
 #include <obs-module.h>
-#include <shout/shout.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+#ifdef HAVE_LIBSHOUT
+#include <shout/shout.h>
+#endif
 
 #define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
 #define RADIO_OUTPUT_RECONNECT_MAX       10
@@ -19,7 +22,9 @@ typedef enum {
 
 struct radio_output {
 	obs_output_t *output; // back-pointer to OBS output object
-	shout_t *shout;       // libshout connection handle
+#ifdef HAVE_LIBSHOUT
+	shout_t *shout; // libshout connection handle
+#endif
 
 	// Connection settings (copied from obs_data at start)
 	char *host;
@@ -61,3 +66,5 @@ struct radio_output {
 #define SETTING_RECONNECT       "reconnect_enabled"
 #define SETTING_RECONNECT_DELAY "reconnect_delay"
 #define SETTING_RECONNECT_MAX   "reconnect_max"
+
+extern struct obs_output_info radio_output_info;
