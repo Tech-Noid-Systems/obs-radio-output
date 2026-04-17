@@ -31,14 +31,25 @@ fi
 echo "Using: ${CLANG_TIDY}"
 echo "Version: $("${CLANG_TIDY}" --version | head -1)"
 
+# macOS requires the Xcode generator; Linux uses the default (Ninja/Make)
+CMAKE_EXTRA_ARGS=()
+if [[ "$(uname)" == "Darwin" ]]; then
+    CMAKE_EXTRA_ARGS+=(-G Xcode)
+fi
+
 # Generate/refresh compile_commands.json if needed
 if [[ ! -f "${BUILD_DIR}/compile_commands.json" ]]; then
     echo ""
     echo "compile_commands.json not found — running cmake configure..."
-    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
+        "${CMAKE_EXTRA_ARGS[@]}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
 else
     # Refresh the flag in the existing cache (fast — no re-download)
-    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null 2>&1
+    cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
+        "${CMAKE_EXTRA_ARGS[@]}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null 2>&1
 fi
 
 echo ""
