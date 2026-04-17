@@ -8,16 +8,46 @@ static const char *radio_output_get_name(void *type_data)
 	return obs_module_text("RadioOutput.Name");
 }
 
+static void radio_output_update(void *data, obs_data_t *settings)
+{
+	UNUSED_PARAMETER(data);
+	UNUSED_PARAMETER(settings);
+}
+
 static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 {
-	UNUSED_PARAMETER(settings);
-	UNUSED_PARAMETER(output);
-	return NULL;
+	struct radio_output *context = bzalloc(sizeof(struct radio_output));
+	context->output = output;
+	context->state = RADIO_STATE_DISCONNECTED;
+	pthread_mutex_init(&context->state_mutex, NULL);
+
+#ifdef HAVE_LIBSHOUT
+	shout_init();
+#endif
+
+	radio_output_update(context, settings);
+	return context;
 }
 
 static void radio_output_destroy(void *data)
 {
-	UNUSED_PARAMETER(data);
+	struct radio_output *context = data;
+	if (!context)
+		return;
+
+#ifdef HAVE_LIBSHOUT
+	if (context->shout) {
+		shout_close(context->shout);
+		shout_free(context->shout);
+	}
+	shout_shutdown();
+#endif
+
+	pthread_mutex_destroy(&context->state_mutex);
+	bfree(context->host);
+	bfree(context->mount);
+	bfree(context->password);
+	bfree(context);
 }
 
 static bool radio_output_start(void *data)
@@ -46,12 +76,6 @@ static obs_properties_t *radio_output_get_properties(void *data)
 
 static void radio_output_get_defaults(obs_data_t *settings)
 {
-	UNUSED_PARAMETER(settings);
-}
-
-static void radio_output_update(void *data, obs_data_t *settings)
-{
-	UNUSED_PARAMETER(data);
 	UNUSED_PARAMETER(settings);
 }
 
