@@ -144,14 +144,43 @@ static bool radio_output_start(void *data)
 
 static void radio_output_stop(void *data, uint64_t ts)
 {
-	UNUSED_PARAMETER(data);
 	UNUSED_PARAMETER(ts);
+	struct radio_output *context = data;
+
+#ifdef HAVE_LIBSHOUT
+	if (context->shout) {
+		shout_close(context->shout);
+		shout_free(context->shout);
+		context->shout = NULL;
+	}
+#endif
+
+	set_state(context, RADIO_STATE_DISCONNECTED);
+	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
+	obs_output_end_data_capture(context->output);
 }
 
 static void radio_output_encoded_packet(void *data, struct encoder_packet *packet)
 {
+#ifndef HAVE_LIBSHOUT
 	UNUSED_PARAMETER(data);
 	UNUSED_PARAMETER(packet);
+#else
+	struct radio_output *context = data;
+
+	if (!context->shout)
+		return;
+
+	int ret = shout_send(context->shout, (const unsigned char *)packet->data, (size_t)packet->size);
+	if (ret != SHOUTERR_SUCCESS) {
+		obs_log(LOG_ERROR, "shout_send() failed: %s", shout_get_error(context->shout));
+		set_state(context, RADIO_STATE_ERROR);
+		obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+		return;
+	}
+
+	shout_sync(context->shout);
+#endif
 }
 
 static obs_properties_t *radio_output_get_properties(void *data)
