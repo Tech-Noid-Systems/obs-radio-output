@@ -59,32 +59,51 @@ Relaunch OBS. Check **Help → Log Files → Current Log** for:
 
 ### Linux
 
+**Prerequisites:** A Debian/Ubuntu-based distribution with `sudo` access. All other
+dependencies are installed automatically by the setup script.
+
 ```bash
 git clone https://github.com/tech-noid-systems/obs-radio-output.git
 cd obs-radio-output
-sudo apt install libshout3-dev
-cmake --preset linux-x86_64
-cmake --build --preset linux-x86_64
+bash scripts/setup-dev-linux.sh
 ```
 
-Install the built plugin:
+The script detects your architecture (x86\_64 or aarch64), installs required packages, and
+runs CMake configure. Once it completes, build and install:
 
 ```bash
+cmake --build build_linux_x86_64 --config RelWithDebInfo
+
 cmake --install build_linux_x86_64 --config RelWithDebInfo \
       --prefix ~/.config/obs-studio/plugins/obs-radio-output
 ```
 
+> **Flatpak OBS:** If you installed OBS via Flatpak, the plugin path is:
+> `~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/obs-radio-output`
+
 ### Windows
 
-Windows builds require Visual Studio 2022 and MSYS2. Full Windows streaming support
-(linking libshout against the MSVC build) is not yet implemented — contributions welcome.
+**Prerequisites:** Windows 10/11 x64 with Visual Studio 2022 (`Desktop development with C++`
+workload) and `winget`. MSYS2 and libshout will be installed automatically by the setup script.
 
 ```powershell
 git clone https://github.com/tech-noid-systems/obs-radio-output.git
 cd obs-radio-output
-cmake --preset windows-x64
-cmake --build --preset windows-x64
+.\scripts\Setup-Dev-Windows.ps1
 ```
+
+Once complete, build and install:
+
+```powershell
+cmake --build build_x64 --config RelWithDebInfo
+
+cmake --install build_x64 --config RelWithDebInfo `
+      --prefix "$env:APPDATA\obs-studio\plugins\obs-radio-output"
+```
+
+> **Note:** Streaming to Icecast/SHOUTcast is not yet functional on Windows. The plugin will
+> load in OBS but the streaming output requires MSVC-compatible libshout binaries (tracked as
+> a known issue — contributions welcome).
 
 ## Usage
 
