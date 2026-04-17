@@ -23,20 +23,14 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install Dependencies 📦
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends \
-            libshout3-dev \
-            clang-tidy
+      - name: Build Plugin 🧱
+        uses: ./.github/actions/build-plugin
+        with:
+          target: x86_64
+          config: RelWithDebInfo
 
-      - name: Generate Compile Commands 🗂️
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DENABLE_FRONTEND_API=OFF \
-            -DENABLE_QT=OFF
+      - name: Enable Compile Commands 🗂️
+        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Run Clang-Tidy 🔬
         uses: cpp-linter/cpp-linter-action@v2
@@ -62,4 +56,3 @@ jobs:
           format-review: false
           step-summary: true
           extra-args: '-std=c99'
-          tidy-tool-path: clang-tidy
