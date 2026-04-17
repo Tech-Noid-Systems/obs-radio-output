@@ -66,3 +66,5 @@ struct radio_output {
 #define SETTING_RECONNECT       "reconnect_enabled"
 #define SETTING_RECONNECT_DELAY "reconnect_delay"
 #define SETTING_RECONNECT_MAX   "reconnect_max"
+
+extern struct obs_output_info radio_output_info;
