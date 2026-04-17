@@ -117,8 +117,8 @@ static bool radio_output_start(void *data)
 	shout_set_agent(context->shout, agent);
 	shout_set_protocol(context->shout, SHOUT_PROTOCOL_HTTP);
 
-	int shout_format = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
-	shout_set_format(context->shout, shout_format);
+	unsigned int shout_format = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
+	shout_set_content_format(context->shout, shout_format, 0, NULL);
 
 	// --- Open connection ---
 	set_state(context, RADIO_STATE_CONNECTING);
