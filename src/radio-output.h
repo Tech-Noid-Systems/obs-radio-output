@@ -42,19 +42,29 @@ struct radio_output {
 	radio_state_t state;
 	pthread_mutex_t state_mutex;
 
-	// Reconnect
+	// Reconnect settings
 	bool reconnect_enabled;
 	int reconnect_delay_ms;
 	int reconnect_max_retries;
 	int reconnect_attempts;
+
+	// Reconnect thread
 	pthread_t reconnect_thread;
-	bool reconnect_thread_running;
+	bool reconnect_active;           // true = thread was spawned and must be joined
+	volatile bool reconnect_running; // false = signal thread to stop
 };
 
 // Codec identifiers
 #define RADIO_CODEC_OPUS   0
 #define RADIO_CODEC_MP3    1
 #define RADIO_CODEC_VORBIS 2 // Phase 2
+
+static inline void set_state(struct radio_output *context, radio_state_t new_state)
+{
+	pthread_mutex_lock(&context->state_mutex);
+	context->state = new_state;
+	pthread_mutex_unlock(&context->state_mutex);
+}
 
 // Settings key names (used in obs_data_get_* calls)
 #define SETTING_HOST            "host"

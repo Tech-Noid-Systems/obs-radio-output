@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "radio-output.h"
+#include "reconnect.h"
 #include <plugin-support.h>
 
 static const char *radio_output_get_name(void *type_data)
@@ -50,6 +51,8 @@ static void radio_output_destroy(void *data)
 	if (!context)
 		return;
 
+	reconnect_cancel(context);
+
 #ifdef HAVE_LIBSHOUT
 	if (context->shout) {
 		shout_close(context->shout);
@@ -63,13 +66,6 @@ static void radio_output_destroy(void *data)
 	bfree(context->mount);
 	bfree(context->password);
 	bfree(context);
-}
-
-static inline void set_state(struct radio_output *context, radio_state_t state)
-{
-	pthread_mutex_lock(&context->state_mutex);
-	context->state = state;
-	pthread_mutex_unlock(&context->state_mutex);
 }
 
 static bool radio_output_start(void *data)
@@ -147,6 +143,9 @@ static void radio_output_stop(void *data, uint64_t ts)
 	UNUSED_PARAMETER(ts);
 	struct radio_output *context = data;
 
+	/* Cancel any in-progress reconnect before touching the shout handle. */
+	reconnect_cancel(context);
+
 #ifdef HAVE_LIBSHOUT
 	if (context->shout) {
 		shout_close(context->shout);
@@ -174,8 +173,24 @@ static void radio_output_encoded_packet(void *data, struct encoder_packet *packe
 	int ret = shout_send(context->shout, (const unsigned char *)packet->data, packet->size);
 	if (ret != SHOUTERR_SUCCESS) {
 		obs_log(LOG_ERROR, "shout_send() failed: %s", shout_get_error(context->shout));
-		set_state(context, RADIO_STATE_ERROR);
-		obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+
+		/* Close the dead connection before attempting to reconnect. */
+		shout_close(context->shout);
+		shout_free(context->shout);
+		context->shout = NULL;
+
+		if (context->reconnect_enabled) {
+			/*
+			 * reconnect_start sets state to RECONNECTING and spawns
+			 * the background thread.  Encoded packets will be silently
+			 * dropped (shout == NULL guard above) until the thread
+			 * restores the connection.
+			 */
+			reconnect_start(context);
+		} else {
+			set_state(context, RADIO_STATE_ERROR);
+			obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+		}
 		return;
 	}
 
