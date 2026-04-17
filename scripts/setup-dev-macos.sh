@@ -51,7 +51,7 @@ print_ok "Homebrew found"
 
 # ── 2. Install Homebrew dependencies ─────────────────────────────────────────
 print_step "Installing Homebrew dependencies from .Brewfile..."
-brew bundle --no-lock --file "${REPO_ROOT}/.github/scripts/.Brewfile"
+brew bundle --file "${REPO_ROOT}/.github/scripts/.Brewfile"
 print_ok "Homebrew dependencies installed"
 
 # ── 3. Build Universal libogg ─────────────────────────────────────────────────
@@ -129,25 +129,47 @@ fi
 # ── 5. CMake configure ────────────────────────────────────────────────────────
 print_step "Running CMake configure (preset: macos)..."
 pushd "${REPO_ROOT}"
+# Default to ad-hoc signing ("-") if no Developer ID is set in the environment.
+# This matches what the CI build-macos script does via CODESIGN_IDENT="${CODESIGN_IDENT:--}".
+export CODESIGN_IDENT="${CODESIGN_IDENT:--}"
 cmake --preset macos -DLibShout_ROOT=/tmp/libshout-universal
 popd
 print_ok "CMake configure complete — build directory: build_macos/"
+
+# ── Write helper script ───────────────────────────────────────────────────────
+cat > "${REPO_ROOT}/build-and-install-macos.sh" <<'EOF'
+#!/usr/bin/env zsh
+set -euo pipefail
+REPO_ROOT="${0:A:h}"
+cd "${REPO_ROOT}"
+
+echo "Building obs-radio-output..."
+xcodebuild \
+  -project build_macos/obs-radio-output.xcodeproj \
+  -target obs-radio-output \
+  -configuration RelWithDebInfo \
+  ONLY_ACTIVE_ARCH=NO \
+  -arch arm64 \
+  -arch x86_64 \
+  | tail -5
+
+echo "Installing to OBS plugins directory..."
+cmake --install build_macos --config RelWithDebInfo --prefix release/RelWithDebInfo
+cp -r release/RelWithDebInfo/obs-radio-output \
+  "${HOME}/Library/Application Support/obs-studio/plugins/"
+
+echo ""
+echo "Done. Launch OBS and check Help → Log Files → Current Log for:"
+echo "  [obs-radio-output] plugin loaded successfully"
+EOF
+chmod +x "${REPO_ROOT}/build-and-install-macos.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 print -P ""
 print -P "%F{green}Dev environment ready!%f"
 print -P ""
-print -P "Build the plugin:"
-print -P "  %F{cyan}xcodebuild -project build_macos/obs-radio-output.xcodeproj \\%f"
-print -P "  %F{cyan}           -target obs-radio-output \\%f"
-print -P "  %F{cyan}           -configuration RelWithDebInfo \\%f"
-print -P "  %F{cyan}           ONLY_ACTIVE_ARCH=NO -arch arm64 -arch x86_64%f"
-print -P ""
-print -P "Install to OBS:"
-print -P "  %F{cyan}cmake --install build_macos --config RelWithDebInfo \\%f"
-print -P "         %F{cyan}--prefix release/RelWithDebInfo%f"
-print -P "  %F{cyan}cp -r release/RelWithDebInfo/obs-radio-output \\%f"
-print -P "     %F{cyan}\"~/Library/Application Support/obs-studio/plugins/\"%f"
+print -P "Build and install the plugin:"
+print -P "  %F{cyan}zsh build-and-install-macos.sh%f"
 print -P ""
 print -P "Then launch OBS and check Help → Log Files → Current Log for:"
 print -P "  %F{yellow}[obs-radio-output] plugin loaded successfully%f"
