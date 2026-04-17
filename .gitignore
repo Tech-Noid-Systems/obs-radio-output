@@ -6,6 +6,7 @@
 !/build-aux
 !/cmake
 !/data
+!/scripts
 !/src
 !.clang-format
 !.gersemirc
