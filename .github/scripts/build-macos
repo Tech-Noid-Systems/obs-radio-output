@@ -181,15 +181,21 @@ build() {
 
   mkdir build-arm64 && pushd build-arm64
   ../configure --prefix=/tmp/liblame-arm64 \
-    --disable-frontend \
+    --disable-frontend --disable-shared --enable-static \
+    CC=clang \
     CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
   mkdir build-x86_64 && pushd build-x86_64
+  # --host tells autoconf to target x86_64 (enabling x86 code paths like SSE).
+  # --disable-shared skips the .dylib link step that requires _lame_init_old via
+  # libtool's -u flag — which fails in an Apple-Clang cross-compile environment.
+  # CC=clang prevents autoconf from looking for x86_64-apple-darwin-gcc.
   ../configure --prefix=/tmp/liblame-x86_64 \
-    --disable-frontend \
+    --disable-frontend --disable-shared --enable-static \
     --host=x86_64-apple-darwin \
+    CC=clang \
     CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
