@@ -54,6 +54,21 @@ static void radio_output_destroy(void *data)
 
 	reconnect_cancel(context);
 
+#ifdef HAVE_LAME
+	/* Guard against destroy being called without stop (e.g. Lua GC). */
+	if (context->send_buf) {
+		context->send_running = false;
+		pthread_mutex_lock(&context->send_mutex);
+		pthread_cond_signal(&context->send_cond);
+		pthread_mutex_unlock(&context->send_mutex);
+		pthread_join(context->send_thread, NULL);
+		pthread_mutex_destroy(&context->send_mutex);
+		pthread_cond_destroy(&context->send_cond);
+		bfree(context->send_buf);
+		context->send_buf = NULL;
+	}
+#endif
+
 #ifdef HAVE_LIBSHOUT
 	if (context->shout) {
 		shout_close(context->shout);
@@ -75,6 +90,68 @@ static void radio_output_destroy(void *data)
 	bfree(context->password);
 	bfree(context);
 }
+
+#ifdef HAVE_LAME
+/*
+ * mp3_send_thread — dequeues encoded MP3 frames from the ring buffer and
+ * forwards them to libshout with proper bitrate pacing via shout_sync().
+ *
+ * Running shout_send + shout_sync on a dedicated thread keeps the OBS audio
+ * callback (raw_audio) fast: it only encodes and writes to the ring buffer.
+ */
+static void *mp3_send_thread(void *data)
+{
+	struct radio_output *context = data;
+	uint8_t scratch[4096];
+
+	while (context->send_running) {
+		pthread_mutex_lock(&context->send_mutex);
+		while (context->send_wpos == context->send_rpos && context->send_running)
+			pthread_cond_wait(&context->send_cond, &context->send_mutex);
+		if (!context->send_running) {
+			pthread_mutex_unlock(&context->send_mutex);
+			break;
+		}
+
+		size_t avail   = context->send_wpos - context->send_rpos;
+		size_t to_read = avail < sizeof(scratch) ? avail : sizeof(scratch);
+		size_t rpos    = context->send_rpos % SEND_BUF_CAPACITY;
+		size_t tail    = SEND_BUF_CAPACITY - rpos;
+
+		if (tail >= to_read) {
+			memcpy(scratch, context->send_buf + rpos, to_read);
+		} else {
+			memcpy(scratch,        context->send_buf + rpos, tail);
+			memcpy(scratch + tail, context->send_buf,        to_read - tail);
+		}
+		context->send_rpos += to_read;
+		pthread_mutex_unlock(&context->send_mutex);
+
+		if (!context->shout)
+			continue;
+
+		/* Pace to bitrate first (standard libshout pattern: sync, then send). */
+		shout_sync(context->shout);
+
+		int ret = shout_send(context->shout, scratch, to_read);
+		if (ret != SHOUTERR_SUCCESS) {
+			obs_log(LOG_ERROR, "[send-thread] shout_send() failed: %s",
+				shout_get_error(context->shout));
+			shout_close(context->shout);
+			shout_free(context->shout);
+			context->shout = NULL;
+			if (context->reconnect_enabled) {
+				reconnect_start(context);
+			} else {
+				set_state(context, RADIO_STATE_ERROR);
+				obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+			}
+			continue;
+		}
+	}
+	return NULL;
+}
+#endif /* HAVE_LAME */
 
 static bool radio_output_start(void *data)
 {
@@ -145,8 +222,26 @@ static bool radio_output_start(void *data)
 	shout_set_agent(context->shout, agent);
 	shout_set_protocol(context->shout, SHOUT_PROTOCOL_HTTP);
 
+	/* libshout 2.4.6: shout_set_content_format() only maps SHOUT_FORMAT_MP3
+	 * to "audio/mpeg" when usage == SHOUT_USAGE_AUDIO (0x0001).  Without
+	 * it the function falls through to OGG, causing Icecast to run its
+	 * OGG parser on the raw MP3 stream and silently drop all source data. */
 	unsigned int shout_format = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
-	shout_set_content_format(context->shout, shout_format, 0, NULL);
+	shout_set_content_format(context->shout, shout_format, SHOUT_USAGE_AUDIO, NULL);
+
+	/* Audio info — libshout's shout_sync() uses the bitrate to calculate
+	 * how long to sleep between sends.  Without it, audiorate = 0 and
+	 * shout_sync can sleep indefinitely. */
+	{
+		char ai_bitrate[16], ai_samplerate[16];
+		snprintf(ai_bitrate,    sizeof(ai_bitrate),    "%d", context->bitrate);
+		snprintf(ai_samplerate, sizeof(ai_samplerate), "%u",
+			 (context->lame_gfp ?
+			  (unsigned)lame_get_in_samplerate(context->lame_gfp) : 48000));
+		shout_set_audio_info(context->shout, SHOUT_AI_BITRATE,    ai_bitrate);
+		shout_set_audio_info(context->shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
+		shout_set_audio_info(context->shout, SHOUT_AI_CHANNELS,   "2");
+	}
 
 	/* --- Open connection --- */
 	set_state(context, RADIO_STATE_CONNECTING);
@@ -186,7 +281,48 @@ static bool radio_output_start(void *data)
 		return false;
 	}
 
+#ifdef HAVE_LAME
+	if (context->codec == RADIO_CODEC_MP3) {
+		uint8_t *sbuf = bmalloc(SEND_BUF_CAPACITY);
+		if (!sbuf) {
+			obs_log(LOG_ERROR, "Failed to allocate MP3 send buffer");
+			goto start_fail_after_capture;
+		}
+		/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio. */
+		context->send_wpos    = 0;
+		context->send_rpos    = 0;
+		context->send_running = true;
+		pthread_mutex_init(&context->send_mutex, NULL);
+		pthread_cond_init(&context->send_cond, NULL);
+		context->send_buf = sbuf; /* raw_audio uses this as its "ready" gate */
+		if (pthread_create(&context->send_thread, NULL, mp3_send_thread, context) != 0) {
+			obs_log(LOG_ERROR, "Failed to create MP3 send thread");
+			context->send_running = false;
+			context->send_buf = NULL;
+			pthread_mutex_destroy(&context->send_mutex);
+			pthread_cond_destroy(&context->send_cond);
+			bfree(sbuf);
+			goto start_fail_after_capture;
+		}
+		obs_log(LOG_INFO, "MP3 send thread started");
+	}
+#endif
+
 	return true;
+
+#ifdef HAVE_LAME
+start_fail_after_capture:
+	obs_output_end_data_capture(context->output);
+	shout_close(context->shout);
+	shout_free(context->shout);
+	context->shout = NULL;
+	if (context->lame_gfp) {
+		lame_close(context->lame_gfp);
+		context->lame_gfp = NULL;
+	}
+	set_state(context, RADIO_STATE_ERROR);
+	return false;
+#endif
 #endif
 }
 
@@ -197,6 +333,22 @@ static void radio_output_stop(void *data, uint64_t ts)
 
 	/* Cancel any in-progress reconnect before touching the shout handle. */
 	reconnect_cancel(context);
+
+#ifdef HAVE_LAME
+	/* Stop the MP3 sender thread before closing the shout handle. */
+	if (context->send_buf) {
+		context->send_running = false;
+		pthread_mutex_lock(&context->send_mutex);
+		pthread_cond_signal(&context->send_cond);
+		pthread_mutex_unlock(&context->send_mutex);
+		pthread_join(context->send_thread, NULL);
+		pthread_mutex_destroy(&context->send_mutex);
+		pthread_cond_destroy(&context->send_cond);
+		bfree(context->send_buf);
+		context->send_buf = NULL;
+		obs_log(LOG_INFO, "MP3 send thread stopped");
+	}
+#endif /* HAVE_LAME */
 
 #ifdef HAVE_LIBSHOUT
 #ifdef HAVE_LAME
@@ -232,21 +384,15 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 #else
 	struct radio_output *context = data;
 
-	static uint32_t diag_count = 0;
-	diag_count++;
-
-	if (!context->shout || !frames || !frames->frames) {
-		if (!context->shout && frames && frames->frames)
-			obs_log(LOG_WARNING, "[raw-audio-diag] #%u: shout handle NULL — skipping", diag_count);
+	if (!frames || !frames->frames)
 		return;
-	}
 
 	if (context->codec == RADIO_CODEC_MP3) {
 #ifdef HAVE_LAME
-		if (!context->lame_gfp)
+		if (!context->lame_gfp || !context->send_buf)
 			return;
 
-		const float *left = (const float *)frames->data[0];
+		const float *left  = (const float *)frames->data[0];
 		const float *right = frames->data[1] ? (const float *)frames->data[1] : left;
 
 		/* Upper bound from LAME docs: 1.25 * nsamples + 7200 bytes. */
@@ -257,32 +403,27 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 							       (int)frames->frames, mp3buf, buf_size);
 
 		if (mp3_bytes > 0) {
-			int ret = shout_send(context->shout, mp3buf, (size_t)mp3_bytes);
-			/* Log every send result for first 2000 calls (~40 seconds of audio). */
-			if (diag_count <= 2000)
-				obs_log(LOG_INFO, "[raw-audio-diag] #%u: lame=%d shout_ret=%d",
-					diag_count, mp3_bytes, ret);
-			if (ret != SHOUTERR_SUCCESS) {
-				obs_log(LOG_ERROR, "shout_send() failed at call #%u: %s", diag_count,
-					shout_get_error(context->shout));
-				shout_close(context->shout);
-				shout_free(context->shout);
-				context->shout = NULL;
-				/*
-				 * Keep lame_gfp alive across the reconnect window so encoder
-				 * state is preserved — raw_audio resumes once the reconnect
-				 * thread restores context->shout.
-				 */
-				if (context->reconnect_enabled) {
-					reconnect_start(context);
-				} else {
-					set_state(context, RADIO_STATE_ERROR);
-					obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
-				}
+			pthread_mutex_lock(&context->send_mutex);
+			/* Drop oldest data if the ring buffer is full. */
+			size_t used = context->send_wpos - context->send_rpos;
+			if (used + (size_t)mp3_bytes > SEND_BUF_CAPACITY) {
+				size_t drop = used + (size_t)mp3_bytes - SEND_BUF_CAPACITY;
+				context->send_rpos += drop;
+				obs_log(LOG_WARNING, "send buffer full, dropped %zu bytes", drop);
 			}
+			size_t wpos = context->send_wpos % SEND_BUF_CAPACITY;
+			size_t tail = SEND_BUF_CAPACITY - wpos;
+			if (tail >= (size_t)mp3_bytes) {
+				memcpy(context->send_buf + wpos, mp3buf, (size_t)mp3_bytes);
+			} else {
+				memcpy(context->send_buf + wpos, mp3buf,        tail);
+				memcpy(context->send_buf,        mp3buf + tail, (size_t)mp3_bytes - tail);
+			}
+			context->send_wpos += (size_t)mp3_bytes;
+			pthread_cond_signal(&context->send_cond);
+			pthread_mutex_unlock(&context->send_mutex);
 		} else if (mp3_bytes < 0) {
-			obs_log(LOG_ERROR, "lame_encode_buffer_ieee_float() error: %d at call #%u",
-				mp3_bytes, diag_count);
+			obs_log(LOG_ERROR, "lame_encode_buffer_ieee_float() error: %d", mp3_bytes);
 		}
 
 		bfree(mp3buf);
