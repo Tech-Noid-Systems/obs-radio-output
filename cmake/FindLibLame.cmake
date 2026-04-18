@@ -13,6 +13,10 @@ find_path(
 
 if(WIN32)
   list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a .dll.a)
+elseif(APPLE)
+  # macOS CI provides a Universal static archive built from source; prefer .a
+  # so find_library does not search for a .dylib that is absent.
+  list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a)
 endif()
 
 find_library(

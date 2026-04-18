@@ -189,16 +189,18 @@ build() {
   mkdir build-x86_64 && pushd build-x86_64
   ../configure --prefix=/tmp/liblame-x86_64 \
     --disable-frontend \
+    --host=x86_64-apple-darwin \
     CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
-  # Merge with lipo
+  # Merge with lipo — use static library so the plugin embeds lame rather than
+  # depending on a dylib that may not be present on the user's system.
   mkdir -p /tmp/liblame-universal/lib /tmp/liblame-universal/include
   lipo -create \
-    /tmp/liblame-arm64/lib/libmp3lame.dylib \
-    /tmp/liblame-x86_64/lib/libmp3lame.dylib \
-    -output /tmp/liblame-universal/lib/libmp3lame.dylib
+    /tmp/liblame-arm64/lib/libmp3lame.a \
+    /tmp/liblame-x86_64/lib/libmp3lame.a \
+    -output /tmp/liblame-universal/lib/libmp3lame.a
   cp -r /tmp/liblame-arm64/include/lame /tmp/liblame-universal/include/
   popd
   log_group
