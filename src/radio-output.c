@@ -354,8 +354,11 @@ static void radio_output_stop(void *data, uint64_t ts)
 	if (context->lame_gfp && context->shout) {
 		uint8_t flush_buf[7200];
 		int flush_bytes = lame_encode_flush(context->lame_gfp, flush_buf, sizeof(flush_buf));
-		if (flush_bytes > 0)
-			(void)shout_send(context->shout, flush_buf, (size_t)flush_bytes);
+		if (flush_bytes > 0) {
+			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
+			if (flush_ret != SHOUTERR_SUCCESS)
+				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
+		}
 	}
 	if (context->lame_gfp) {
 		lame_close(context->lame_gfp);
