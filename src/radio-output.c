@@ -113,16 +113,16 @@ static void *mp3_send_thread(void *data)
 			break;
 		}
 
-		size_t avail   = context->send_wpos - context->send_rpos;
+		size_t avail = context->send_wpos - context->send_rpos;
 		size_t to_read = avail < sizeof(scratch) ? avail : sizeof(scratch);
-		size_t rpos    = context->send_rpos % SEND_BUF_CAPACITY;
-		size_t tail    = SEND_BUF_CAPACITY - rpos;
+		size_t rpos = context->send_rpos % SEND_BUF_CAPACITY;
+		size_t tail = SEND_BUF_CAPACITY - rpos;
 
 		if (tail >= to_read) {
 			memcpy(scratch, context->send_buf + rpos, to_read);
 		} else {
-			memcpy(scratch,        context->send_buf + rpos, tail);
-			memcpy(scratch + tail, context->send_buf,        to_read - tail);
+			memcpy(scratch, context->send_buf + rpos, tail);
+			memcpy(scratch + tail, context->send_buf, to_read - tail);
 		}
 		context->send_rpos += to_read;
 		pthread_mutex_unlock(&context->send_mutex);
@@ -135,8 +135,7 @@ static void *mp3_send_thread(void *data)
 
 		int ret = shout_send(context->shout, scratch, to_read);
 		if (ret != SHOUTERR_SUCCESS) {
-			obs_log(LOG_ERROR, "[send-thread] shout_send() failed: %s",
-				shout_get_error(context->shout));
+			obs_log(LOG_ERROR, "[send-thread] shout_send() failed: %s", shout_get_error(context->shout));
 			shout_close(context->shout);
 			shout_free(context->shout);
 			context->shout = NULL;
@@ -234,13 +233,12 @@ static bool radio_output_start(void *data)
 	 * shout_sync can sleep indefinitely. */
 	{
 		char ai_bitrate[16], ai_samplerate[16];
-		snprintf(ai_bitrate,    sizeof(ai_bitrate),    "%d", context->bitrate);
+		snprintf(ai_bitrate, sizeof(ai_bitrate), "%d", context->bitrate);
 		snprintf(ai_samplerate, sizeof(ai_samplerate), "%u",
-			 (context->lame_gfp ?
-			  (unsigned)lame_get_in_samplerate(context->lame_gfp) : 48000));
-		shout_set_audio_info(context->shout, SHOUT_AI_BITRATE,    ai_bitrate);
+			 (context->lame_gfp ? (unsigned)lame_get_in_samplerate(context->lame_gfp) : 48000));
+		shout_set_audio_info(context->shout, SHOUT_AI_BITRATE, ai_bitrate);
 		shout_set_audio_info(context->shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
-		shout_set_audio_info(context->shout, SHOUT_AI_CHANNELS,   "2");
+		shout_set_audio_info(context->shout, SHOUT_AI_CHANNELS, "2");
 	}
 
 	/* --- Open connection --- */
@@ -289,8 +287,8 @@ static bool radio_output_start(void *data)
 			goto start_fail_after_capture;
 		}
 		/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio. */
-		context->send_wpos    = 0;
-		context->send_rpos    = 0;
+		context->send_wpos = 0;
+		context->send_rpos = 0;
 		context->send_running = true;
 		pthread_mutex_init(&context->send_mutex, NULL);
 		pthread_cond_init(&context->send_cond, NULL);
@@ -392,15 +390,15 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 		if (!context->lame_gfp || !context->send_buf)
 			return;
 
-		const float *left  = (const float *)frames->data[0];
+		const float *left = (const float *)frames->data[0];
 		const float *right = frames->data[1] ? (const float *)frames->data[1] : left;
 
 		/* Upper bound from LAME docs: 1.25 * nsamples + 7200 bytes. */
 		int buf_size = (int)(1.25f * (float)frames->frames) + 7200;
 		uint8_t *mp3buf = bmalloc((size_t)buf_size);
 
-		int mp3_bytes = lame_encode_buffer_ieee_float(context->lame_gfp, left, right,
-							       (int)frames->frames, mp3buf, buf_size);
+		int mp3_bytes = lame_encode_buffer_ieee_float(context->lame_gfp, left, right, (int)frames->frames,
+							      mp3buf, buf_size);
 
 		if (mp3_bytes > 0) {
 			pthread_mutex_lock(&context->send_mutex);
@@ -416,8 +414,8 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 			if (tail >= (size_t)mp3_bytes) {
 				memcpy(context->send_buf + wpos, mp3buf, (size_t)mp3_bytes);
 			} else {
-				memcpy(context->send_buf + wpos, mp3buf,        tail);
-				memcpy(context->send_buf,        mp3buf + tail, (size_t)mp3_bytes - tail);
+				memcpy(context->send_buf + wpos, mp3buf, tail);
+				memcpy(context->send_buf, mp3buf + tail, (size_t)mp3_bytes - tail);
 			}
 			context->send_wpos += (size_t)mp3_bytes;
 			pthread_cond_signal(&context->send_cond);

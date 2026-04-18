@@ -46,7 +46,6 @@ struct radio_output {
 	radio_state_t state;
 	pthread_mutex_t state_mutex;
 
-
 	// Reconnect settings
 	bool reconnect_enabled;
 	int reconnect_delay_ms;
@@ -63,13 +62,13 @@ struct radio_output {
 
 	/* MP3 sender thread — encodes in raw_audio, sends + syncs here */
 #define SEND_BUF_CAPACITY (256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
-	uint8_t         *send_buf;
-	size_t           send_wpos;    /* monotonically increasing write position */
-	size_t           send_rpos;    /* monotonically increasing read position */
-	pthread_mutex_t  send_mutex;
-	pthread_cond_t   send_cond;
-	pthread_t        send_thread;
-	volatile bool    send_running;
+	uint8_t *send_buf;
+	size_t send_wpos; /* monotonically increasing write position */
+	size_t send_rpos; /* monotonically increasing read position */
+	pthread_mutex_t send_mutex;
+	pthread_cond_t send_cond;
+	pthread_t send_thread;
+	volatile bool send_running;
 #endif
 };
 
