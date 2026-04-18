@@ -9,6 +9,10 @@
 #include <shout/shout.h>
 #endif
 
+#ifdef HAVE_LAME
+#include <lame/lame.h>
+#endif
+
 #define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
 #define RADIO_OUTPUT_RECONNECT_MAX       10
 
@@ -52,6 +56,10 @@ struct radio_output {
 	pthread_t reconnect_thread;
 	bool reconnect_active;           // true = thread was spawned and must be joined
 	volatile bool reconnect_running; // false = signal thread to stop
+
+#ifdef HAVE_LAME
+	lame_global_flags *lame_gfp; /* LAME MP3 encoder handle — NULL when inactive */
+#endif
 };
 
 // Codec identifiers
