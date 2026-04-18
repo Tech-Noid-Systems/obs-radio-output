@@ -103,6 +103,7 @@ build() {
 
   cmake_args+=(--preset 'macos-ci')
   cmake_args+=(-DLibShout_ROOT=/tmp/libshout-universal)
+  cmake_args+=(-DLibLame_ROOT=/tmp/liblame-universal)
 
   typeset -gx NSUnbufferedIO=YES
 
@@ -168,6 +169,37 @@ build() {
     /tmp/libshout-x86_64/lib/libshout.dylib \
     -output /tmp/libshout-universal/lib/libshout.dylib
   cp -r /tmp/libshout-arm64/include/shout /tmp/libshout-universal/include/
+  popd
+  log_group
+
+  log_group "Building Universal libmp3lame..."
+  curl -sSL https://downloads.sourceforge.net/lame/lame-3.100.tar.gz \
+    -o /tmp/lame.tar.gz
+  tar -xzf /tmp/lame.tar.gz -C /tmp
+  mv /tmp/lame-3.100 /tmp/lame-src
+  pushd /tmp/lame-src
+
+  mkdir build-arm64 && pushd build-arm64
+  ../configure --prefix=/tmp/liblame-arm64 \
+    --disable-frontend \
+    CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  mkdir build-x86_64 && pushd build-x86_64
+  ../configure --prefix=/tmp/liblame-x86_64 \
+    --disable-frontend \
+    CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  # Merge with lipo
+  mkdir -p /tmp/liblame-universal/lib /tmp/liblame-universal/include
+  lipo -create \
+    /tmp/liblame-arm64/lib/libmp3lame.dylib \
+    /tmp/liblame-x86_64/lib/libmp3lame.dylib \
+    -output /tmp/liblame-universal/lib/libmp3lame.dylib
+  cp -r /tmp/liblame-arm64/include/lame /tmp/liblame-universal/include/
   popd
   log_group
 
