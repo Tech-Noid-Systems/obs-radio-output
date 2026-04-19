@@ -51,8 +51,8 @@ static bool attempt_connect(struct radio_output *context)
  *   3c. Failure and retries remain → loop back to step 1.
  *
  * context->shout must be NULL when this thread starts.  On success the thread
- * sets context->shout to the live handle; encoded_packet will pick it up on the
- * next call.
+ * sets context->shout to the live handle; the MP3 sender thread will pick it
+ * up on its next loop iteration.
  */
 static void *reconnect_thread_fn(void *data)
 {
@@ -115,7 +115,7 @@ void reconnect_start(struct radio_output *context)
 	/*
 	 * Join any thread that finished on its own (e.g. a prior reconnect that
 	 * succeeded, or one that hit max retries).  This prevents a thread leak
-	 * if encoded_packet calls reconnect_start a second time.
+	 * if the MP3 sender thread calls reconnect_start a second time.
 	 */
 	if (context->reconnect_active) {
 		context->reconnect_running = false;
