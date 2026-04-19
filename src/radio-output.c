@@ -91,6 +91,44 @@ static void radio_output_destroy(void *data)
 	bfree(context);
 }
 
+#ifdef HAVE_LIBSHOUT
+void shout_apply_settings(struct radio_output *context, shout_t *shout)
+{
+	char agent[64];
+	snprintf(agent, sizeof(agent), "obs-radio-output/%s", PLUGIN_VERSION);
+
+	unsigned int fmt = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
+
+	shout_set_host(shout, context->host);
+	shout_set_port(shout, (unsigned short)context->port);
+	shout_set_mount(shout, context->mount);
+	shout_set_password(shout, context->password);
+	shout_set_agent(shout, agent);
+	shout_set_protocol(shout, SHOUT_PROTOCOL_HTTP);
+
+	/* libshout 2.4.6: shout_set_content_format() only maps SHOUT_FORMAT_MP3
+	 * to "audio/mpeg" when usage == SHOUT_USAGE_AUDIO.  Without it the
+	 * function falls through to OGG, causing Icecast to run its OGG parser
+	 * on the raw MP3 stream and silently drop the source. */
+	shout_set_content_format(shout, fmt, SHOUT_USAGE_AUDIO, NULL);
+
+	/* Audio info: shout_sync() uses the bitrate to pace sends; without it
+	 * audiorate = 0 and shout_sync can sleep indefinitely.  Also populates
+	 * the audio_info stats on the Icecast admin page. */
+	char ai_bitrate[16], ai_samplerate[16];
+	uint32_t sample_rate = 48000;
+#ifdef HAVE_LAME
+	if (context->lame_gfp)
+		sample_rate = (uint32_t)lame_get_in_samplerate(context->lame_gfp);
+#endif
+	snprintf(ai_bitrate, sizeof(ai_bitrate), "%d", context->bitrate);
+	snprintf(ai_samplerate, sizeof(ai_samplerate), "%u", sample_rate);
+	shout_set_audio_info(shout, SHOUT_AI_BITRATE, ai_bitrate);
+	shout_set_audio_info(shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
+	shout_set_audio_info(shout, SHOUT_AI_CHANNELS, "2");
+}
+#endif
+
 #ifdef HAVE_LAME
 /*
  * mp3_send_thread — dequeues encoded MP3 frames from the ring buffer and
@@ -211,35 +249,7 @@ static bool radio_output_start(void *data)
 		return false;
 	}
 
-	char agent[64];
-	snprintf(agent, sizeof(agent), "obs-radio-output/%s", PLUGIN_VERSION);
-
-	shout_set_host(context->shout, context->host);
-	shout_set_port(context->shout, context->port);
-	shout_set_mount(context->shout, context->mount);
-	shout_set_password(context->shout, context->password);
-	shout_set_agent(context->shout, agent);
-	shout_set_protocol(context->shout, SHOUT_PROTOCOL_HTTP);
-
-	/* libshout 2.4.6: shout_set_content_format() only maps SHOUT_FORMAT_MP3
-	 * to "audio/mpeg" when usage == SHOUT_USAGE_AUDIO (0x0001).  Without
-	 * it the function falls through to OGG, causing Icecast to run its
-	 * OGG parser on the raw MP3 stream and silently drop all source data. */
-	unsigned int shout_format = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
-	shout_set_content_format(context->shout, shout_format, SHOUT_USAGE_AUDIO, NULL);
-
-	/* Audio info — libshout's shout_sync() uses the bitrate to calculate
-	 * how long to sleep between sends.  Without it, audiorate = 0 and
-	 * shout_sync can sleep indefinitely. */
-	{
-		char ai_bitrate[16], ai_samplerate[16];
-		snprintf(ai_bitrate, sizeof(ai_bitrate), "%d", context->bitrate);
-		snprintf(ai_samplerate, sizeof(ai_samplerate), "%u",
-			 (context->lame_gfp ? (unsigned)lame_get_in_samplerate(context->lame_gfp) : 48000));
-		shout_set_audio_info(context->shout, SHOUT_AI_BITRATE, ai_bitrate);
-		shout_set_audio_info(context->shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
-		shout_set_audio_info(context->shout, SHOUT_AI_CHANNELS, "2");
-	}
+	shout_apply_settings(context, context->shout);
 
 	/* --- Open connection --- */
 	set_state(context, RADIO_STATE_CONNECTING);
