@@ -9,6 +9,10 @@
 #include <shout/shout.h>
 #endif
 
+#ifdef HAVE_LAME
+#include <lame/lame.h>
+#endif
+
 #define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
 #define RADIO_OUTPUT_RECONNECT_MAX       10
 
@@ -52,6 +56,20 @@ struct radio_output {
 	pthread_t reconnect_thread;
 	bool reconnect_active;           // true = thread was spawned and must be joined
 	volatile bool reconnect_running; // false = signal thread to stop
+
+#ifdef HAVE_LAME
+	lame_global_flags *lame_gfp; /* LAME MP3 encoder handle — NULL when inactive */
+
+	/* MP3 sender thread — encodes in raw_audio, sends + syncs here */
+#define SEND_BUF_CAPACITY (256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
+	uint8_t *send_buf;
+	size_t send_wpos; /* monotonically increasing write position */
+	size_t send_rpos; /* monotonically increasing read position */
+	pthread_mutex_t send_mutex;
+	pthread_cond_t send_cond;
+	pthread_t send_thread;
+	volatile bool send_running;
+#endif
 };
 
 // Codec identifiers
