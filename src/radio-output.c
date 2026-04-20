@@ -339,6 +339,16 @@ static void radio_output_stop(void *data, uint64_t ts)
 	UNUSED_PARAMETER(ts);
 	struct radio_output *context = data;
 
+	/* OBS may re-enter this callback (e.g. obs_output_release on an active
+	 * output).  Bail out if we've already torn down so the disconnect log
+	 * and end_data_capture fire exactly once. */
+	pthread_mutex_lock(&context->state_mutex);
+	if (context->state == RADIO_STATE_DISCONNECTED) {
+		pthread_mutex_unlock(&context->state_mutex);
+		return;
+	}
+	pthread_mutex_unlock(&context->state_mutex);
+
 	/* Cancel any in-progress reconnect before touching the shout handle. */
 	reconnect_cancel(context);
 
