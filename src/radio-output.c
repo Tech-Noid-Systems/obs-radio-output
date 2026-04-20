@@ -46,16 +46,36 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 	return context;
 }
 
-static void radio_output_destroy(void *data)
+/*
+ * radio_output_teardown — idempotent teardown used by both the stop and
+ * destroy callbacks.  Must be called before freeing the context itself.
+ *
+ * Why this lives here: on the OBS_OUTPUT_ERROR path (reconnect gives up →
+ * obs_output_signal_stop), OBS internally marks the output as stopped, so
+ * a subsequent obs_output_stop() becomes a no-op and our stop callback
+ * never fires — only destroy does, via obs_output_release.  Both paths
+ * need identical teardown, including the "Disconnected from …" and
+ * "MP3 send thread stopped" logs, so share one helper.
+ *
+ * The state_mutex guard makes this safe to call from stop AND destroy on
+ * the happy path (stop runs first → state becomes DISCONNECTED → destroy's
+ * call no-ops).
+ */
+static void radio_output_teardown(struct radio_output *context)
 {
-	struct radio_output *context = data;
-	if (!context)
+	pthread_mutex_lock(&context->state_mutex);
+	if (context->state == RADIO_STATE_DISCONNECTED) {
+		pthread_mutex_unlock(&context->state_mutex);
 		return;
+	}
+	pthread_mutex_unlock(&context->state_mutex);
+
+	/* Stop the audio callback BEFORE freeing anything it touches. */
+	obs_output_end_data_capture(context->output);
 
 	reconnect_cancel(context);
 
 #ifdef HAVE_LAME
-	/* Guard against destroy being called without stop (e.g. Lua GC). */
 	if (context->send_buf) {
 		context->send_running = false;
 		pthread_mutex_lock(&context->send_mutex);
@@ -66,22 +86,48 @@ static void radio_output_destroy(void *data)
 		pthread_cond_destroy(&context->send_cond);
 		bfree(context->send_buf);
 		context->send_buf = NULL;
+		obs_log(LOG_INFO, "MP3 send thread stopped");
 	}
-#endif
+#endif /* HAVE_LAME */
 
 #ifdef HAVE_LIBSHOUT
-	if (context->shout) {
-		shout_close(context->shout);
-		shout_free(context->shout);
-	}
-	shout_shutdown();
-#endif
-
 #ifdef HAVE_LAME
+	/* Flush remaining MP3 frames before closing the connection. */
+	if (context->lame_gfp && context->shout) {
+		uint8_t flush_buf[7200];
+		int flush_bytes = lame_encode_flush(context->lame_gfp, flush_buf, sizeof(flush_buf));
+		if (flush_bytes > 0) {
+			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
+			if (flush_ret != SHOUTERR_SUCCESS)
+				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
+		}
+	}
 	if (context->lame_gfp) {
 		lame_close(context->lame_gfp);
 		context->lame_gfp = NULL;
 	}
+#endif /* HAVE_LAME */
+	if (context->shout) {
+		shout_close(context->shout);
+		shout_free(context->shout);
+		context->shout = NULL;
+	}
+#endif /* HAVE_LIBSHOUT */
+
+	set_state(context, RADIO_STATE_DISCONNECTED);
+	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
+}
+
+static void radio_output_destroy(void *data)
+{
+	struct radio_output *context = data;
+	if (!context)
+		return;
+
+	radio_output_teardown(context);
+
+#ifdef HAVE_LIBSHOUT
+	shout_shutdown();
 #endif
 
 	pthread_mutex_destroy(&context->state_mutex);
@@ -127,7 +173,39 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	shout_set_audio_info(shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
 	shout_set_audio_info(shout, SHOUT_AI_CHANNELS, "2");
 }
-#endif
+
+/*
+ * shout_handoff_cleanup — close + free a libshout handle on a detached
+ * thread so a graceful protocol-close on a half-dead socket doesn't block
+ * the caller.  libshout 2.4.6's shout_close() writes a goodbye message;
+ * if the peer is gone but no TCP RST has arrived, that send() blocks
+ * until the kernel TCP timeout (~60 s on macOS).  Calling shout_free()
+ * alone would leak the connection + fd (libshout 2.4.6 quirk: shout_free
+ * does not call shout_connection_unref).  A detached thread lets the
+ * kernel reap the blocked close whenever the TCP timeout fires.
+ */
+static void *shout_close_detached(void *data)
+{
+	shout_t *handle = data;
+	shout_close(handle);
+	shout_free(handle);
+	return NULL;
+}
+
+static void shout_handoff_cleanup(shout_t *handle)
+{
+	if (!handle)
+		return;
+	pthread_t tid;
+	if (pthread_create(&tid, NULL, shout_close_detached, handle) != 0) {
+		obs_log(LOG_WARNING, "pthread_create for shout cleanup failed; closing inline");
+		shout_close(handle);
+		shout_free(handle);
+		return;
+	}
+	pthread_detach(tid);
+}
+#endif /* HAVE_LIBSHOUT */
 
 #ifdef HAVE_LAME
 /*
@@ -174,9 +252,9 @@ static void *mp3_send_thread(void *data)
 		int ret = shout_send(context->shout, scratch, to_read);
 		if (ret != SHOUTERR_SUCCESS) {
 			obs_log(LOG_ERROR, "[send-thread] shout_send() failed: %s", shout_get_error(context->shout));
-			shout_close(context->shout);
-			shout_free(context->shout);
+			shout_t *dead = context->shout;
 			context->shout = NULL;
+			shout_handoff_cleanup(dead);
 			if (context->reconnect_enabled) {
 				reconnect_start(context);
 			} else {
@@ -337,64 +415,7 @@ start_fail_after_capture:
 static void radio_output_stop(void *data, uint64_t ts)
 {
 	UNUSED_PARAMETER(ts);
-	struct radio_output *context = data;
-
-	/* OBS may re-enter this callback (e.g. obs_output_release on an active
-	 * output).  Bail out if we've already torn down so the disconnect log
-	 * and end_data_capture fire exactly once. */
-	pthread_mutex_lock(&context->state_mutex);
-	if (context->state == RADIO_STATE_DISCONNECTED) {
-		pthread_mutex_unlock(&context->state_mutex);
-		return;
-	}
-	pthread_mutex_unlock(&context->state_mutex);
-
-	/* Cancel any in-progress reconnect before touching the shout handle. */
-	reconnect_cancel(context);
-
-#ifdef HAVE_LAME
-	/* Stop the MP3 sender thread before closing the shout handle. */
-	if (context->send_buf) {
-		context->send_running = false;
-		pthread_mutex_lock(&context->send_mutex);
-		pthread_cond_signal(&context->send_cond);
-		pthread_mutex_unlock(&context->send_mutex);
-		pthread_join(context->send_thread, NULL);
-		pthread_mutex_destroy(&context->send_mutex);
-		pthread_cond_destroy(&context->send_cond);
-		bfree(context->send_buf);
-		context->send_buf = NULL;
-		obs_log(LOG_INFO, "MP3 send thread stopped");
-	}
-#endif /* HAVE_LAME */
-
-#ifdef HAVE_LIBSHOUT
-#ifdef HAVE_LAME
-	/* Flush remaining MP3 frames before closing the connection. */
-	if (context->lame_gfp && context->shout) {
-		uint8_t flush_buf[7200];
-		int flush_bytes = lame_encode_flush(context->lame_gfp, flush_buf, sizeof(flush_buf));
-		if (flush_bytes > 0) {
-			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
-			if (flush_ret != SHOUTERR_SUCCESS)
-				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
-		}
-	}
-	if (context->lame_gfp) {
-		lame_close(context->lame_gfp);
-		context->lame_gfp = NULL;
-	}
-#endif /* HAVE_LAME */
-	if (context->shout) {
-		shout_close(context->shout);
-		shout_free(context->shout);
-		context->shout = NULL;
-	}
-#endif /* HAVE_LIBSHOUT */
-
-	set_state(context, RADIO_STATE_DISCONNECTED);
-	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
-	obs_output_end_data_capture(context->output);
+	radio_output_teardown((struct radio_output *)data);
 }
 
 static void radio_output_raw_audio(void *data, struct audio_data *frames)
