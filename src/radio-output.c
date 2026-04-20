@@ -127,7 +127,39 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	shout_set_audio_info(shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
 	shout_set_audio_info(shout, SHOUT_AI_CHANNELS, "2");
 }
-#endif
+
+/*
+ * shout_handoff_cleanup — close + free a libshout handle on a detached
+ * thread so a graceful protocol-close on a half-dead socket doesn't block
+ * the caller.  libshout 2.4.6's shout_close() writes a goodbye message;
+ * if the peer is gone but no TCP RST has arrived, that send() blocks
+ * until the kernel TCP timeout (~60 s on macOS).  Calling shout_free()
+ * alone would leak the connection + fd (libshout 2.4.6 quirk: shout_free
+ * does not call shout_connection_unref).  A detached thread lets the
+ * kernel reap the blocked close whenever the TCP timeout fires.
+ */
+static void *shout_close_detached(void *data)
+{
+	shout_t *handle = data;
+	shout_close(handle);
+	shout_free(handle);
+	return NULL;
+}
+
+static void shout_handoff_cleanup(shout_t *handle)
+{
+	if (!handle)
+		return;
+	pthread_t tid;
+	if (pthread_create(&tid, NULL, shout_close_detached, handle) != 0) {
+		obs_log(LOG_WARNING, "pthread_create for shout cleanup failed; closing inline");
+		shout_close(handle);
+		shout_free(handle);
+		return;
+	}
+	pthread_detach(tid);
+}
+#endif /* HAVE_LIBSHOUT */
 
 #ifdef HAVE_LAME
 /*
@@ -174,9 +206,9 @@ static void *mp3_send_thread(void *data)
 		int ret = shout_send(context->shout, scratch, to_read);
 		if (ret != SHOUTERR_SUCCESS) {
 			obs_log(LOG_ERROR, "[send-thread] shout_send() failed: %s", shout_get_error(context->shout));
-			shout_close(context->shout);
-			shout_free(context->shout);
+			shout_t *dead = context->shout;
 			context->shout = NULL;
+			shout_handoff_cleanup(dead);
 			if (context->reconnect_enabled) {
 				reconnect_start(context);
 			} else {
