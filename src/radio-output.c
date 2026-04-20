@@ -550,6 +550,7 @@ static void radio_output_get_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, SETTING_RECONNECT, true);
 	obs_data_set_default_int(settings, SETTING_RECONNECT_DELAY, 5);
 	obs_data_set_default_int(settings, SETTING_RECONNECT_MAX, 10);
+	obs_data_set_default_bool(settings, SETTING_START_WITH_STREAMING, false);
 }
 
 struct obs_output_info radio_output_info = {

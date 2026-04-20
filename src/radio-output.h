@@ -98,14 +98,15 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #endif
 
 // Settings key names (used in obs_data_get_* calls)
-#define SETTING_HOST            "host"
-#define SETTING_PORT            "port"
-#define SETTING_MOUNT           "mount"
-#define SETTING_PASSWORD        "password"
-#define SETTING_CODEC           "codec"
-#define SETTING_BITRATE         "bitrate"
-#define SETTING_RECONNECT       "reconnect_enabled"
-#define SETTING_RECONNECT_DELAY "reconnect_delay"
-#define SETTING_RECONNECT_MAX   "reconnect_max"
+#define SETTING_HOST                 "host"
+#define SETTING_PORT                 "port"
+#define SETTING_MOUNT                "mount"
+#define SETTING_PASSWORD             "password"
+#define SETTING_CODEC                "codec"
+#define SETTING_BITRATE              "bitrate"
+#define SETTING_RECONNECT            "reconnect_enabled"
+#define SETTING_RECONNECT_DELAY      "reconnect_delay"
+#define SETTING_RECONNECT_MAX        "reconnect_max"
+#define SETTING_START_WITH_STREAMING "start_with_streaming"
 
 extern struct obs_output_info radio_output_info;

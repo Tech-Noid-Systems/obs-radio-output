@@ -71,7 +71,15 @@ endif()
 
 target_sources(
   ${CMAKE_PROJECT_NAME}
-  PRIVATE src/plugin-main.c src/radio-output.c src/radio-output.h src/reconnect.c src/reconnect.h
+  PRIVATE src/plugin-main.c
+          src/radio-output.c
+          src/radio-output.h
+          src/reconnect.c
+          src/reconnect.h
+          src/frontend-wire.cpp
+          src/frontend-wire.h
+          src/radio-output-config-dialog.cpp
+          src/radio-output-config-dialog.hpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
