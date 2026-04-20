@@ -29,9 +29,6 @@ jobs:
           target: x86_64
           config: RelWithDebInfo
 
-      - name: Enable Compile Commands 🗂️
-        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
       - name: Run Clang-Tidy 🔬
         uses: cpp-linter/cpp-linter-action@v2
         id: linter
@@ -40,7 +37,7 @@ jobs:
         with:
           style: ''
           tidy-checks: ''
-          database: build
+          database: build_x86_64
           files-changed-only: true
           thread-comments: true
           tidy-review: true
