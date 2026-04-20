@@ -26,18 +26,7 @@ static bool attempt_connect(struct radio_output *context)
 		return false;
 	}
 
-	char agent[64];
-	snprintf(agent, sizeof(agent), "obs-radio-output/%s", PLUGIN_VERSION);
-
-	unsigned int fmt = (context->codec == RADIO_CODEC_MP3) ? SHOUT_FORMAT_MP3 : SHOUT_FORMAT_OGG;
-
-	shout_set_host(shout, context->host);
-	shout_set_port(shout, (unsigned short)context->port);
-	shout_set_mount(shout, context->mount);
-	shout_set_password(shout, context->password);
-	shout_set_agent(shout, agent);
-	shout_set_protocol(shout, SHOUT_PROTOCOL_HTTP);
-	shout_set_content_format(shout, fmt, 0, NULL);
+	shout_apply_settings(context, shout);
 
 	int err = shout_open(shout);
 	if (err != SHOUTERR_SUCCESS) {
@@ -62,8 +51,8 @@ static bool attempt_connect(struct radio_output *context)
  *   3c. Failure and retries remain → loop back to step 1.
  *
  * context->shout must be NULL when this thread starts.  On success the thread
- * sets context->shout to the live handle; encoded_packet will pick it up on the
- * next call.
+ * sets context->shout to the live handle; the MP3 sender thread will pick it
+ * up on its next loop iteration.
  */
 static void *reconnect_thread_fn(void *data)
 {
@@ -126,7 +115,7 @@ void reconnect_start(struct radio_output *context)
 	/*
 	 * Join any thread that finished on its own (e.g. a prior reconnect that
 	 * succeeded, or one that hit max retries).  This prevents a thread leak
-	 * if encoded_packet calls reconnect_start a second time.
+	 * if the MP3 sender thread calls reconnect_start a second time.
 	 */
 	if (context->reconnect_active) {
 		context->reconnect_running = false;

@@ -84,6 +84,19 @@ static inline void set_state(struct radio_output *context, radio_state_t new_sta
 	pthread_mutex_unlock(&context->state_mutex);
 }
 
+#ifdef HAVE_LIBSHOUT
+/**
+ * shout_apply_settings - Configure a fresh shout_t handle with the plugin's
+ * Icecast settings (host, port, mount, password, agent, protocol, content
+ * format, audio info).
+ *
+ * Used by both the initial connect (radio_output_start) and the reconnect
+ * path (reconnect.c) so the two cannot drift.  Caller owns shout_new() and
+ * shout_open().
+ */
+void shout_apply_settings(struct radio_output *context, shout_t *shout);
+#endif
+
 // Settings key names (used in obs_data_get_* calls)
 #define SETTING_HOST            "host"
 #define SETTING_PORT            "port"

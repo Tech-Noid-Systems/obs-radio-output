@@ -6,7 +6,7 @@
 /**
  * reconnect_start - Spawn the reconnect background thread.
  *
- * Call this when a send failure is detected inside encoded_packet (i.e. after
+ * Call this when the MP3 sender thread detects a send failure (after
  * context->shout has been closed and set to NULL).  If reconnect_enabled is
  * false the call is a no-op.  If a previous reconnect thread is still alive it
  * is joined first.
