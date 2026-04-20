@@ -52,7 +52,9 @@ static void radio_output_destroy(void *data)
 	if (!context)
 		return;
 
+	obs_log(LOG_INFO, "destroy: DBG-D0 callback entered");
 	reconnect_cancel(context);
+	obs_log(LOG_INFO, "destroy: DBG-D1 after reconnect_cancel");
 
 #ifdef HAVE_LAME
 	/* Guard against destroy being called without stop (e.g. Lua GC). */
@@ -370,6 +372,8 @@ static void radio_output_stop(void *data, uint64_t ts)
 {
 	UNUSED_PARAMETER(ts);
 	struct radio_output *context = data;
+
+	obs_log(LOG_INFO, "stop: DBG0 callback entered");
 
 	/* OBS may re-enter this callback (e.g. obs_output_release on an active
 	 * output).  Bail out if we've already torn down so the disconnect log
