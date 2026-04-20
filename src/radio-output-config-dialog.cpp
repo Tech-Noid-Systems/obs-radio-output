@@ -115,7 +115,9 @@ void selectByData(QComboBox *combo, int value)
 
 } // namespace
 
-RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *parent) : QDialog(parent), settings_(settings)
+RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *parent)
+	: QDialog(parent),
+	  settings_(settings)
 {
 	setWindowTitle(obs_module_text("RadioOutput.Config.Title"));
 	setModal(true);

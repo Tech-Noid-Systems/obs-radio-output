@@ -128,7 +128,8 @@ extern "C" void frontend_wire_load(void)
 {
 	load_config_from_disk();
 
-	obs_frontend_add_tools_menu_item(obs_module_text("RadioOutput.Menu.OpenConfig"), on_tools_menu_clicked, nullptr);
+	obs_frontend_add_tools_menu_item(obs_module_text("RadioOutput.Menu.OpenConfig"), on_tools_menu_clicked,
+					 nullptr);
 }
 
 extern "C" void frontend_wire_unload(void)
