@@ -381,27 +381,37 @@ static void radio_output_stop(void *data, uint64_t ts)
 	}
 	pthread_mutex_unlock(&context->state_mutex);
 
+	obs_log(LOG_INFO, "stop: DBG1 before end_data_capture");
 	/* Stop the audio callback BEFORE freeing anything it touches.  Otherwise
 	 * an in-flight raw_audio callback races with the teardown below and can
 	 * use-after-free context->send_buf / lame_gfp. */
 	obs_output_end_data_capture(context->output);
+	obs_log(LOG_INFO, "stop: DBG2 after end_data_capture");
 
 	/* Cancel any in-progress reconnect before touching the shout handle. */
 	reconnect_cancel(context);
+	obs_log(LOG_INFO, "stop: DBG3 after reconnect_cancel");
 
 #ifdef HAVE_LAME
 	/* Stop the MP3 sender thread before closing the shout handle. */
 	if (context->send_buf) {
+		obs_log(LOG_INFO, "stop: DBG4 send_buf set, signaling send thread");
 		context->send_running = false;
 		pthread_mutex_lock(&context->send_mutex);
 		pthread_cond_signal(&context->send_cond);
 		pthread_mutex_unlock(&context->send_mutex);
+		obs_log(LOG_INFO, "stop: DBG5 signal sent, about to join");
 		pthread_join(context->send_thread, NULL);
+		obs_log(LOG_INFO, "stop: DBG6 send thread joined");
 		pthread_mutex_destroy(&context->send_mutex);
+		obs_log(LOG_INFO, "stop: DBG7 mutex destroyed");
 		pthread_cond_destroy(&context->send_cond);
+		obs_log(LOG_INFO, "stop: DBG8 cond destroyed");
 		bfree(context->send_buf);
 		context->send_buf = NULL;
 		obs_log(LOG_INFO, "MP3 send thread stopped");
+	} else {
+		obs_log(LOG_INFO, "stop: DBG4-skip send_buf was NULL");
 	}
 #endif /* HAVE_LAME */
 
