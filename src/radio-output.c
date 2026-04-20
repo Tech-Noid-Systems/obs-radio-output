@@ -46,18 +46,36 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 	return context;
 }
 
-static void radio_output_destroy(void *data)
+/*
+ * radio_output_teardown — idempotent teardown used by both the stop and
+ * destroy callbacks.  Must be called before freeing the context itself.
+ *
+ * Why this lives here: on the OBS_OUTPUT_ERROR path (reconnect gives up →
+ * obs_output_signal_stop), OBS internally marks the output as stopped, so
+ * a subsequent obs_output_stop() becomes a no-op and our stop callback
+ * never fires — only destroy does, via obs_output_release.  Both paths
+ * need identical teardown, including the "Disconnected from …" and
+ * "MP3 send thread stopped" logs, so share one helper.
+ *
+ * The state_mutex guard makes this safe to call from stop AND destroy on
+ * the happy path (stop runs first → state becomes DISCONNECTED → destroy's
+ * call no-ops).
+ */
+static void radio_output_teardown(struct radio_output *context)
 {
-	struct radio_output *context = data;
-	if (!context)
+	pthread_mutex_lock(&context->state_mutex);
+	if (context->state == RADIO_STATE_DISCONNECTED) {
+		pthread_mutex_unlock(&context->state_mutex);
 		return;
+	}
+	pthread_mutex_unlock(&context->state_mutex);
 
-	obs_log(LOG_INFO, "destroy: DBG-D0 callback entered");
+	/* Stop the audio callback BEFORE freeing anything it touches. */
+	obs_output_end_data_capture(context->output);
+
 	reconnect_cancel(context);
-	obs_log(LOG_INFO, "destroy: DBG-D1 after reconnect_cancel");
 
 #ifdef HAVE_LAME
-	/* Guard against destroy being called without stop (e.g. Lua GC). */
 	if (context->send_buf) {
 		context->send_running = false;
 		pthread_mutex_lock(&context->send_mutex);
@@ -68,22 +86,48 @@ static void radio_output_destroy(void *data)
 		pthread_cond_destroy(&context->send_cond);
 		bfree(context->send_buf);
 		context->send_buf = NULL;
+		obs_log(LOG_INFO, "MP3 send thread stopped");
 	}
-#endif
+#endif /* HAVE_LAME */
 
 #ifdef HAVE_LIBSHOUT
-	if (context->shout) {
-		shout_close(context->shout);
-		shout_free(context->shout);
-	}
-	shout_shutdown();
-#endif
-
 #ifdef HAVE_LAME
+	/* Flush remaining MP3 frames before closing the connection. */
+	if (context->lame_gfp && context->shout) {
+		uint8_t flush_buf[7200];
+		int flush_bytes = lame_encode_flush(context->lame_gfp, flush_buf, sizeof(flush_buf));
+		if (flush_bytes > 0) {
+			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
+			if (flush_ret != SHOUTERR_SUCCESS)
+				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
+		}
+	}
 	if (context->lame_gfp) {
 		lame_close(context->lame_gfp);
 		context->lame_gfp = NULL;
 	}
+#endif /* HAVE_LAME */
+	if (context->shout) {
+		shout_close(context->shout);
+		shout_free(context->shout);
+		context->shout = NULL;
+	}
+#endif /* HAVE_LIBSHOUT */
+
+	set_state(context, RADIO_STATE_DISCONNECTED);
+	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
+}
+
+static void radio_output_destroy(void *data)
+{
+	struct radio_output *context = data;
+	if (!context)
+		return;
+
+	radio_output_teardown(context);
+
+#ifdef HAVE_LIBSHOUT
+	shout_shutdown();
 #endif
 
 	pthread_mutex_destroy(&context->state_mutex);
@@ -371,80 +415,7 @@ start_fail_after_capture:
 static void radio_output_stop(void *data, uint64_t ts)
 {
 	UNUSED_PARAMETER(ts);
-	struct radio_output *context = data;
-
-	obs_log(LOG_INFO, "stop: DBG0 callback entered");
-
-	/* OBS may re-enter this callback (e.g. obs_output_release on an active
-	 * output).  Bail out if we've already torn down so the disconnect log
-	 * and end_data_capture fire exactly once. */
-	pthread_mutex_lock(&context->state_mutex);
-	if (context->state == RADIO_STATE_DISCONNECTED) {
-		pthread_mutex_unlock(&context->state_mutex);
-		return;
-	}
-	pthread_mutex_unlock(&context->state_mutex);
-
-	obs_log(LOG_INFO, "stop: DBG1 before end_data_capture");
-	/* Stop the audio callback BEFORE freeing anything it touches.  Otherwise
-	 * an in-flight raw_audio callback races with the teardown below and can
-	 * use-after-free context->send_buf / lame_gfp. */
-	obs_output_end_data_capture(context->output);
-	obs_log(LOG_INFO, "stop: DBG2 after end_data_capture");
-
-	/* Cancel any in-progress reconnect before touching the shout handle. */
-	reconnect_cancel(context);
-	obs_log(LOG_INFO, "stop: DBG3 after reconnect_cancel");
-
-#ifdef HAVE_LAME
-	/* Stop the MP3 sender thread before closing the shout handle. */
-	if (context->send_buf) {
-		obs_log(LOG_INFO, "stop: DBG4 send_buf set, signaling send thread");
-		context->send_running = false;
-		pthread_mutex_lock(&context->send_mutex);
-		pthread_cond_signal(&context->send_cond);
-		pthread_mutex_unlock(&context->send_mutex);
-		obs_log(LOG_INFO, "stop: DBG5 signal sent, about to join");
-		pthread_join(context->send_thread, NULL);
-		obs_log(LOG_INFO, "stop: DBG6 send thread joined");
-		pthread_mutex_destroy(&context->send_mutex);
-		obs_log(LOG_INFO, "stop: DBG7 mutex destroyed");
-		pthread_cond_destroy(&context->send_cond);
-		obs_log(LOG_INFO, "stop: DBG8 cond destroyed");
-		bfree(context->send_buf);
-		context->send_buf = NULL;
-		obs_log(LOG_INFO, "MP3 send thread stopped");
-	} else {
-		obs_log(LOG_INFO, "stop: DBG4-skip send_buf was NULL");
-	}
-#endif /* HAVE_LAME */
-
-#ifdef HAVE_LIBSHOUT
-#ifdef HAVE_LAME
-	/* Flush remaining MP3 frames before closing the connection. */
-	if (context->lame_gfp && context->shout) {
-		uint8_t flush_buf[7200];
-		int flush_bytes = lame_encode_flush(context->lame_gfp, flush_buf, sizeof(flush_buf));
-		if (flush_bytes > 0) {
-			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
-			if (flush_ret != SHOUTERR_SUCCESS)
-				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
-		}
-	}
-	if (context->lame_gfp) {
-		lame_close(context->lame_gfp);
-		context->lame_gfp = NULL;
-	}
-#endif /* HAVE_LAME */
-	if (context->shout) {
-		shout_close(context->shout);
-		shout_free(context->shout);
-		context->shout = NULL;
-	}
-#endif /* HAVE_LIBSHOUT */
-
-	set_state(context, RADIO_STATE_DISCONNECTED);
-	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
+	radio_output_teardown((struct radio_output *)data);
 }
 
 static void radio_output_raw_audio(void *data, struct audio_data *frames)
