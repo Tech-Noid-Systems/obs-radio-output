@@ -381,6 +381,11 @@ static void radio_output_stop(void *data, uint64_t ts)
 	}
 	pthread_mutex_unlock(&context->state_mutex);
 
+	/* Stop the audio callback BEFORE freeing anything it touches.  Otherwise
+	 * an in-flight raw_audio callback races with the teardown below and can
+	 * use-after-free context->send_buf / lame_gfp. */
+	obs_output_end_data_capture(context->output);
+
 	/* Cancel any in-progress reconnect before touching the shout handle. */
 	reconnect_cancel(context);
 
@@ -426,7 +431,6 @@ static void radio_output_stop(void *data, uint64_t ts)
 
 	set_state(context, RADIO_STATE_DISCONNECTED);
 	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
-	obs_output_end_data_capture(context->output);
 }
 
 static void radio_output_raw_audio(void *data, struct audio_data *frames)
