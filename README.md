@@ -40,6 +40,15 @@ clang-format -i src/*.c src/*.h src/*.cpp src/*.hpp
 gersemi -i CMakeLists.txt
 ```
 
+**Recommended:** install `pre-commit` to have these hooks run automatically on every `git commit`:
+
+```bash
+pipx install pre-commit   # or: brew install pre-commit
+pre-commit install        # run once per clone
+```
+
+Configuration lives in `.pre-commit-config.yaml` at the repo root. Hooks: `clang-format`, `gersemi`, trailing-whitespace fixer, end-of-file fixer, large-file check, YAML/JSON syntax check, merge-conflict marker detection.
+
 ### macOS
 
 **Prerequisites:** Xcode Command Line Tools and [Homebrew](https://brew.sh). All other

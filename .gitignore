@@ -4,6 +4,7 @@
 # Except for default project files
 !/.clang-tidy
 !/.github
+!/.pre-commit-config.yaml
 !/build-aux
 !/cmake
 !/data
