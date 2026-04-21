@@ -13,6 +13,10 @@
 #include <lame/lame.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
 #define RADIO_OUTPUT_RECONNECT_MAX       10
 
@@ -119,3 +123,7 @@ extern struct obs_output_info radio_output_info;
  * radio-output.c for the lifetime guarantee.
  */
 struct radio_output *radio_output_get_active(void);
+
+#ifdef __cplusplus
+}
+#endif
