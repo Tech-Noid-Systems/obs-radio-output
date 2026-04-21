@@ -53,12 +53,18 @@ jobs:
           : # reviewdog doesn't ship a built-in parser for clang-tidy; feed it
           : # an -efm (vim errorformat) pattern that matches the standard
           : # "file:line:col: severity: message [check-name]" output format.
-          set -o pipefail
-          clang-tidy -p=build_x86_64 src/*.c src/*.cpp 2>&1 | \
-            reviewdog \
-              -efm='%f:%l:%c: %tarning: %m' \
-              -efm='%f:%l:%c: %trror: %m' \
-              -name=clang-tidy \
-              -reporter=github-pr-check \
-              -level=warning \
-              -filter-mode=added
+          : #
+          : # We intentionally do NOT use `set -o pipefail` here: clang-tidy
+          : # exits non-zero whenever it emits any diagnostic, and that would
+          : # make the step red even when reviewdog successfully posts the
+          : # findings as annotations.  The tee preserves the raw output in
+          : # the job log for debugging.
+          clang-tidy -p=build_x86_64 src/*.c src/*.cpp 2>&1 \
+            | tee clang-tidy.log \
+            | reviewdog \
+                -efm='%f:%l:%c: %tarning: %m' \
+                -efm='%f:%l:%c: %trror: %m' \
+                -name=clang-tidy \
+                -reporter=github-pr-check \
+                -level=warning \
+                -filter-mode=added
