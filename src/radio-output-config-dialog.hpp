@@ -44,7 +44,7 @@ public:
 private slots:
 	void onAccept();
 
-private:
+private: // NOLINT(readability-redundant-access-specifiers) — keeps data members visually separate from Qt slots
 	obs_data_t *settings_;
 
 	QLineEdit *host_;

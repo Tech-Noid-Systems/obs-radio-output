@@ -10,6 +10,7 @@ Checks: >-
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
   -misc-include-cleaner,
   -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
   -readability-redundant-casting

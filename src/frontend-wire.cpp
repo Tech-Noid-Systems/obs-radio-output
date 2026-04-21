@@ -79,18 +79,14 @@ void apply_defaults(obs_data_t *data)
 
 void load_config_from_disk()
 {
-	std::string path = config_file_path();
-	if (path.empty()) {
-		g_config = obs_data_create();
-	} else if (os_file_exists(path.c_str())) {
+	const std::string path = config_file_path();
+	if (!path.empty() && os_file_exists(path.c_str())) {
 		g_config = obs_data_create_from_json_file(path.c_str());
-		if (!g_config) {
+		if (!g_config)
 			obs_log(LOG_WARNING, "[frontend-wire] failed to parse %s; using defaults", path.c_str());
-			g_config = obs_data_create();
-		}
-	} else {
-		g_config = obs_data_create();
 	}
+	if (!g_config)
+		g_config = obs_data_create();
 	apply_defaults(g_config);
 }
 
@@ -99,11 +95,11 @@ void save_config_to_disk()
 	if (!g_config)
 		return;
 
-	std::string dir = config_dir_path();
+	const std::string dir = config_dir_path();
 	if (!dir.empty())
 		os_mkdirs(dir.c_str());
 
-	std::string path = config_file_path();
+	const std::string path = config_file_path();
 	if (path.empty())
 		return;
 
@@ -111,7 +107,7 @@ void save_config_to_disk()
 		obs_log(LOG_WARNING, "[frontend-wire] failed to save config to %s", path.c_str());
 }
 
-void on_tools_menu_clicked(void *)
+void on_tools_menu_clicked(void * /*priv*/)
 {
 	if (!g_config)
 		return;

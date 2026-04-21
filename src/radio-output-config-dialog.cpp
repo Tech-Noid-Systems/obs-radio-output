@@ -67,7 +67,7 @@ QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QCo
 	form->addRow(obs_module_text("RadioOutput.Audio.Codec"), codec);
 
 	bitrate = new QComboBox(group);
-	for (int br : kBitrates) {
+	for (const int br : kBitrates) {
 		bitrate->addItem(QString("%1 kbps").arg(br), br);
 	}
 	form->addRow(obs_module_text("RadioOutput.Audio.Bitrate"), bitrate);
@@ -108,7 +108,7 @@ QWidget *buildIntegrationGroup(RadioOutputConfigDialog *parent, QCheckBox *&star
 /* Select the combo entry whose userData matches value; no-op if not present. */
 void selectByData(QComboBox *combo, int value)
 {
-	int idx = combo->findData(value);
+	const int idx = combo->findData(value);
 	if (idx >= 0)
 		combo->setCurrentIndex(idx);
 }
