@@ -81,6 +81,8 @@ target_sources(
     src/frontend-wire.h
     src/radio-output-config-dialog.cpp
     src/radio-output-config-dialog.hpp
+    src/radio-output-dock.cpp
+    src/radio-output-dock.hpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

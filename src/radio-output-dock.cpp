@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+obs-radio-output
+Copyright (C) 2026 Aaron Cupp <mrcupp@mrcupp.com>
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program. If not, see <https://www.gnu.org/licenses/>
+*/
+
+#include "radio-output-dock.hpp"
+
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+
+#include <obs-module.h>
+#include <pthread.h>
+
+#include "frontend-wire.h"
+#include "radio-output.h"
+
+namespace {
+
+/* Poll interval for the connection-state label.  500 ms keeps the UI
+ * responsive without spinning the CPU; it's also short enough that state
+ * transitions feel instant to the user. */
+constexpr int kPollIntervalMs = 500;
+
+struct StateDisplay {
+	const char *locale_key;
+	const char *stylesheet_color;
+};
+
+StateDisplay displayFor(radio_state_t state)
+{
+	switch (state) {
+	case RADIO_STATE_CONNECTING:
+		return {"RadioOutput.State.Connecting", "#d6a100"}; /* amber */
+	case RADIO_STATE_CONNECTED:
+		return {"RadioOutput.State.Connected", "#2ca14b"}; /* green */
+	case RADIO_STATE_RECONNECTING:
+		return {"RadioOutput.State.Reconnecting", "#d17d00"}; /* orange */
+	case RADIO_STATE_ERROR:
+		return {"RadioOutput.State.Error", "#c0392b"}; /* red */
+	case RADIO_STATE_DISCONNECTED:
+	default:
+		return {"RadioOutput.State.Disconnected", "#888888"}; /* grey */
+	}
+}
+
+} // namespace
+
+RadioOutputDock::RadioOutputDock(QWidget *parent) : QFrame(parent)
+{
+	setFrameShape(QFrame::NoFrame);
+
+	status_ = new QLabel(obs_module_text("RadioOutput.State.Disconnected"), this);
+	QFont font = status_->font();
+	font.setPointSize(font.pointSize() + 2);
+	font.setBold(true);
+	status_->setFont(font);
+	status_->setAlignment(Qt::AlignCenter);
+
+	start_ = new QPushButton(obs_module_text("RadioOutput.Dock.Start"), this);
+	stop_ = new QPushButton(obs_module_text("RadioOutput.Dock.Stop"), this);
+	stop_->setEnabled(false);
+
+	connect(start_, &QPushButton::clicked, this, &RadioOutputDock::onStart);
+	connect(stop_, &QPushButton::clicked, this, &RadioOutputDock::onStop);
+
+	auto *buttons = new QHBoxLayout;
+	buttons->addWidget(start_);
+	buttons->addWidget(stop_);
+
+	auto *layout = new QVBoxLayout(this);
+	layout->addWidget(status_);
+	layout->addLayout(buttons);
+	layout->addStretch(1); /* Reserved vertical space for §F (Now Playing) and §G (listener count). */
+
+	poll_ = new QTimer(this);
+	poll_->setInterval(kPollIntervalMs);
+	connect(poll_, &QTimer::timeout, this, &RadioOutputDock::pollState);
+	poll_->start();
+}
+
+void RadioOutputDock::onStart()
+{
+	frontend_wire_start_output();
+	/* State update happens via pollState() on next tick, so the button
+	 * enabled-state flips then rather than optimistically here. */
+}
+
+void RadioOutputDock::onStop()
+{
+	frontend_wire_stop_output();
+}
+
+void RadioOutputDock::pollState()
+{
+	struct radio_output *ctx = radio_output_get_active();
+	radio_state_t state = RADIO_STATE_DISCONNECTED;
+	if (ctx) {
+		pthread_mutex_lock(&ctx->state_mutex);
+		state = ctx->state;
+		pthread_mutex_unlock(&ctx->state_mutex);
+	}
+
+	const StateDisplay disp = displayFor(state);
+	status_->setText(obs_module_text(disp.locale_key));
+	status_->setStyleSheet(QString("QLabel { color: %1; }").arg(disp.stylesheet_color));
+
+	const bool running = (state == RADIO_STATE_CONNECTING || state == RADIO_STATE_CONNECTED ||
+			      state == RADIO_STATE_RECONNECTING);
+	start_->setEnabled(!running);
+	stop_->setEnabled(running || state == RADIO_STATE_ERROR);
+}

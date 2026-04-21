@@ -31,6 +31,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <string>
 
 #include "radio-output-config-dialog.hpp"
+#include "radio-output-dock.hpp"
 #include "radio-output.h"
 
 namespace {
@@ -39,6 +40,11 @@ constexpr const char *kConfigFileName = "config.json";
 
 /* Module-global config.  Owned by this translation unit. */
 obs_data_t *g_config = nullptr;
+
+/* Module-global active obs_output_t handle.  Populated by
+ * frontend_wire_start_output, released by frontend_wire_stop_output.
+ * nullptr when nothing is running. */
+obs_output_t *g_active_output_handle = nullptr;
 
 std::string config_file_path()
 {
@@ -126,10 +132,16 @@ extern "C" void frontend_wire_load(void)
 
 	obs_frontend_add_tools_menu_item(obs_module_text("RadioOutput.Menu.OpenConfig"), on_tools_menu_clicked,
 					 nullptr);
+
+	/* Register the persistent dock.  OBS takes ownership of the widget
+	 * and keeps it alive for the lifetime of the frontend. */
+	auto *dock = new RadioOutputDock();
+	obs_frontend_add_dock_by_id("obs-radio-output-dock", obs_module_text("RadioOutput.Dock.Name"), dock);
 }
 
 extern "C" void frontend_wire_unload(void)
 {
+	frontend_wire_stop_output();
 	save_config_to_disk();
 
 	if (g_config) {
@@ -141,4 +153,41 @@ extern "C" void frontend_wire_unload(void)
 extern "C" obs_data_t *frontend_wire_get_config(void)
 {
 	return g_config;
+}
+
+extern "C" bool frontend_wire_start_output(void)
+{
+	if (g_active_output_handle) {
+		obs_log(LOG_INFO, "[frontend-wire] output already running; start request ignored");
+		return true;
+	}
+	if (!g_config) {
+		obs_log(LOG_ERROR, "[frontend-wire] cannot start output: config not loaded");
+		return false;
+	}
+
+	g_active_output_handle = obs_output_create("radio_output", "radio_output_inst", g_config, nullptr);
+	if (!g_active_output_handle) {
+		obs_log(LOG_ERROR, "[frontend-wire] obs_output_create failed");
+		return false;
+	}
+
+	if (!obs_output_start(g_active_output_handle)) {
+		obs_log(LOG_ERROR, "[frontend-wire] obs_output_start failed");
+		obs_output_release(g_active_output_handle);
+		g_active_output_handle = nullptr;
+		return false;
+	}
+
+	return true;
+}
+
+extern "C" void frontend_wire_stop_output(void)
+{
+	if (!g_active_output_handle)
+		return;
+
+	obs_output_stop(g_active_output_handle);
+	obs_output_release(g_active_output_handle);
+	g_active_output_handle = nullptr;
 }

@@ -4,6 +4,27 @@
 #include "reconnect.h"
 #include <plugin-support.h>
 
+/*
+ * Module-global pointer to the currently instantiated output, for the dock
+ * widget (src/radio-output-dock.cpp) and frontend event handler (§B.3) to
+ * read connection state from.  Assigned in radio_output_create, cleared in
+ * radio_output_destroy.  Read-only access elsewhere; callers must hold
+ * context->state_mutex to read the state field safely.
+ *
+ * Pointer reads/writes are atomic at the machine level on all supported
+ * platforms, and all writers run on the OBS main thread (create/destroy
+ * callbacks), so no explicit synchronization is needed around the pointer
+ * itself.  The lifetime race — destroy clearing the pointer while a reader
+ * dereferences it — is precluded because the dock (the only reader today)
+ * runs its QTimer on the main thread too, serialized with destroy.
+ */
+static struct radio_output *g_active_output = NULL;
+
+struct radio_output *radio_output_get_active(void)
+{
+	return g_active_output;
+}
+
 static const char *radio_output_get_name(void *type_data)
 {
 	UNUSED_PARAMETER(type_data);
@@ -43,6 +64,7 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 #endif
 
 	radio_output_update(context, settings);
+	g_active_output = context;
 	return context;
 }
 
@@ -125,6 +147,13 @@ static void radio_output_destroy(void *data)
 		return;
 
 	radio_output_teardown(context);
+
+	/* Clear the module-global pointer only if it still points at us.  If a
+	 * second output was created in parallel (unlikely but possible via Lua
+	 * during transition), g_active_output tracks whichever was created
+	 * last; don't clobber it. */
+	if (g_active_output == context)
+		g_active_output = NULL;
 
 #ifdef HAVE_LIBSHOUT
 	shout_shutdown();
