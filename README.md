@@ -23,10 +23,27 @@ Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio se
 
 ## Building from Source
 
+### Prerequisites for contributors
+
+In addition to the per-platform build prerequisites below, contributors need these local tools to pass CI-equivalent checks before pushing:
+
+- **clang-format (≥ 16)** — enforces C/C++ formatting. CI runs it via `.clang-format`. Install:
+  - macOS: `brew install clang-format`
+  - Ubuntu: `apt install clang-format`
+  - Windows: via Visual Studio (bundled) or `winget install LLVM.LLVM`
+- **gersemi** — enforces CMake formatting. Install: `brew install gersemi` (macOS) or `pipx install gersemi` (any platform with Python).
+
+Run both locally before committing any changes that touch source or CMake files:
+
+```bash
+clang-format -i src/*.c src/*.h src/*.cpp src/*.hpp
+gersemi -i CMakeLists.txt
+```
+
 ### macOS
 
 **Prerequisites:** Xcode Command Line Tools and [Homebrew](https://brew.sh). All other
-dependencies (CMake, autotools, libshout) are installed automatically by the setup script.
+dependencies (CMake, autotools, libshout, libmp3lame, Qt6) are installed automatically by the setup script.
 
 ```zsh
 git clone https://github.com/tech-noid-systems/obs-radio-output.git

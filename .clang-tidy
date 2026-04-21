@@ -1,0 +1,24 @@
+---
+Checks: >-
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -misc-include-cleaner,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-redundant-casting
+WarningsAsErrors: ""
+HeaderFilterRegex: "src/.*"
+FormatStyle: "file"
+CheckOptions:
+  - key: readability-identifier-length.MinimumVariableNameLength
+    value: "2"
+  - key: readability-identifier-length.MinimumParameterNameLength
+    value: "2"

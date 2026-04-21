@@ -2,6 +2,7 @@
 /*
 
 # Except for default project files
+!/.clang-tidy
 !/.github
 !/build-aux
 !/cmake
