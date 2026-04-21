@@ -54,7 +54,15 @@ jobs:
           : # red-check the job.  Disable pipefail for this step and capture
           : # the raw output to a file for the next step to consume.
           set +o pipefail
-          clang-tidy -p=build_x86_64 src/*.c src/*.cpp > clang-tidy.log 2>&1 || true
+          : # --extra-arg=-Wno-unknown-warning-option lets clang-tidy skip
+          : # GCC-specific flags like -Werror=maybe-uninitialized /
+          : # -Wno-stringop-overflow that OBS's build config adds.  Without
+          : # this, clang-tidy errors at command-line processing before
+          : # analyzing any code.
+          clang-tidy \
+            --extra-arg=-Wno-unknown-warning-option \
+            -p=build_x86_64 src/*.c src/*.cpp \
+            > clang-tidy.log 2>&1 || true
           echo "::group::clang-tidy raw output"
           cat clang-tidy.log
           echo "::endgroup::"
