@@ -124,6 +124,43 @@ void on_tools_menu_clicked(void * /*priv*/)
 		save_config_to_disk();
 }
 
+/*
+ * Tie radio start/stop to OBS's streaming Start / Stop events when the
+ * user has opted in via the "Start/stop radio with OBS streaming"
+ * checkbox.  Opt-in is checked live (from g_config) at event time, so
+ * toggling the setting takes effect on the NEXT transition without
+ * requiring re-registration of the callback.
+ *
+ * Radio failures never block video: frontend_wire_start_output() logs
+ * and returns false on its own, we just surface the warning.
+ *
+ * Recording events (OBS_FRONTEND_EVENT_RECORDING_STARTING/STOPPING)
+ * are deliberately not handled here — extending to recording is a
+ * separate setting + additional case labels in a future phase.
+ */
+void on_frontend_event(enum obs_frontend_event event, void * /*priv*/)
+{
+	if (!g_config)
+		return;
+	if (!obs_data_get_bool(g_config, SETTING_START_WITH_STREAMING))
+		return;
+
+	switch (event) {
+	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
+		obs_log(LOG_INFO, "[frontend-wire] OBS streaming starting — auto-starting radio output");
+		if (!frontend_wire_start_output())
+			obs_log(LOG_WARNING,
+				"[frontend-wire] radio auto-start failed; OBS video streaming continues unaffected");
+		break;
+	case OBS_FRONTEND_EVENT_STREAMING_STOPPING:
+		obs_log(LOG_INFO, "[frontend-wire] OBS streaming stopping — auto-stopping radio output");
+		frontend_wire_stop_output();
+		break;
+	default:
+		break;
+	}
+}
+
 } // namespace
 
 extern "C" void frontend_wire_load(void)
@@ -137,10 +174,16 @@ extern "C" void frontend_wire_load(void)
 	 * and keeps it alive for the lifetime of the frontend. */
 	auto *dock = new RadioOutputDock();
 	obs_frontend_add_dock_by_id("obs-radio-output-dock", obs_module_text("RadioOutput.Dock.Name"), dock);
+
+	/* Tie radio start/stop to OBS streaming events.  The callback checks
+	 * SETTING_START_WITH_STREAMING live, so the opt-in toggle works
+	 * without needing to re-register. */
+	obs_frontend_add_event_callback(on_frontend_event, nullptr);
 }
 
 extern "C" void frontend_wire_unload(void)
 {
+	obs_frontend_remove_event_callback(on_frontend_event, nullptr);
 	frontend_wire_stop_output();
 	save_config_to_disk();
 
