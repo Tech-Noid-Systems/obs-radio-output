@@ -44,6 +44,7 @@ QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QLineEdit *&host, QSp
 
 	port = new QSpinBox(group);
 	port->setRange(1, 65535);
+	port->setMinimumWidth(100);
 	form->addRow(obs_module_text("RadioOutput.Server.Port"), port);
 
 	mount = new QLineEdit(group);
@@ -85,10 +86,12 @@ QWidget *buildReconnectGroup(RadioOutputConfigDialog *parent, QCheckBox *&enable
 
 	delay = new QSpinBox(group);
 	delay->setRange(1, 300);
+	delay->setMinimumWidth(100);
 	form->addRow(obs_module_text("RadioOutput.Reconnect.Delay"), delay);
 
 	max = new QSpinBox(group);
 	max->setRange(0, 999);
+	max->setMinimumWidth(100);
 	form->addRow(obs_module_text("RadioOutput.Reconnect.Max"), max);
 
 	return group;
@@ -121,6 +124,7 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 {
 	setWindowTitle(obs_module_text("RadioOutput.Config.Title"));
 	setModal(true);
+	setMinimumWidth(420);
 
 	auto *layout = new QVBoxLayout(this);
 	layout->addWidget(buildServerGroup(this, host_, port_, mount_, password_));
