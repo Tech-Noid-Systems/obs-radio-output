@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      security-events: write
+      checks: write
       pull-requests: write
     defaults:
       run:
@@ -29,17 +29,32 @@ jobs:
           target: x86_64
           config: RelWithDebInfo
 
-      - name: Run Clang-Tidy 🔬
-        uses: cpp-linter/cpp-linter-action@v2
-        id: linter
+      - name: Show Compile Commands 🔍
+        run: |
+          : # Verify the build produced compile_commands.json with the expected
+          : # entries for the Phase 2 UI sources; without this clang-tidy can't
+          : # parse C++ files correctly.
+          if [[ -f build_x86_64/compile_commands.json ]]; then
+            echo "::group::compile_commands.json entries for Phase 2 UI sources"
+            jq '.[] | select(.file | test("frontend-wire|config-dialog"))' \
+              build_x86_64/compile_commands.json || true
+            echo "::endgroup::"
+          else
+            echo "::warning::build_x86_64/compile_commands.json missing — clang-tidy will lack per-file flags"
+          fi
+
+      - name: Setup reviewdog 🐕
+        uses: reviewdog/action-setup@v1
+
+      - name: Run Clang-Tidy via reviewdog 🔬
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          style: ''
-          tidy-checks: ''
-          database: build_x86_64
-          files-changed-only: true
-          thread-comments: true
-          tidy-review: true
-          format-review: false
-          step-summary: true
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          clang-tidy -p=build_x86_64 src/*.c src/*.cpp 2>&1 | \
+            reviewdog \
+              -f=clang-tidy \
+              -name=clang-tidy \
+              -reporter=github-pr-check \
+              -level=warning \
+              -filter-mode=added
