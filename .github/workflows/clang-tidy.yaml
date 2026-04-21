@@ -46,25 +46,31 @@ jobs:
       - name: Setup reviewdog 🐕
         uses: reviewdog/action-setup@v1
 
-      - name: Run Clang-Tidy via reviewdog 🔬
+      - name: Run Clang-Tidy 🔬
+        run: |
+          : # GitHub Actions' default bash shell runs with `-e -o pipefail`
+          : # baked in, so clang-tidy's non-zero exit (it returns non-zero
+          : # whenever any diagnostic is emitted) would fail the step and
+          : # red-check the job.  Disable pipefail for this step and capture
+          : # the raw output to a file for the next step to consume.
+          set +o pipefail
+          clang-tidy -p=build_x86_64 src/*.c src/*.cpp > clang-tidy.log 2>&1 || true
+          echo "::group::clang-tidy raw output"
+          cat clang-tidy.log
+          echo "::endgroup::"
+
+      - name: Post annotations via reviewdog 🐕
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           : # reviewdog doesn't ship a built-in parser for clang-tidy; feed it
-          : # an -efm (vim errorformat) pattern that matches the standard
+          : # -efm (vim errorformat) patterns that match the standard
           : # "file:line:col: severity: message [check-name]" output format.
-          : #
-          : # We intentionally do NOT use `set -o pipefail` here: clang-tidy
-          : # exits non-zero whenever it emits any diagnostic, and that would
-          : # make the step red even when reviewdog successfully posts the
-          : # findings as annotations.  The tee preserves the raw output in
-          : # the job log for debugging.
-          clang-tidy -p=build_x86_64 src/*.c src/*.cpp 2>&1 \
-            | tee clang-tidy.log \
-            | reviewdog \
-                -efm='%f:%l:%c: %tarning: %m' \
-                -efm='%f:%l:%c: %trror: %m' \
-                -name=clang-tidy \
-                -reporter=github-pr-check \
-                -level=warning \
-                -filter-mode=added
+          reviewdog \
+            -efm='%f:%l:%c: %tarning: %m' \
+            -efm='%f:%l:%c: %trror: %m' \
+            -name=clang-tidy \
+            -reporter=github-pr-check \
+            -level=warning \
+            -filter-mode=added \
+            < clang-tidy.log
