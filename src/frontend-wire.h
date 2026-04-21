@@ -48,6 +48,25 @@ void frontend_wire_unload(void);
  */
 obs_data_t *frontend_wire_get_config(void);
 
+/*
+ * Create a fresh radio_output using the current config and call
+ * obs_output_start() on it.  If an output is already running, this is a
+ * no-op (returns true).  Returns true on success, false if the output
+ * couldn't be created or started.
+ *
+ * The created obs_output_t is owned by this module for the lifetime of
+ * the broadcast and released by frontend_wire_stop_output().  Callers
+ * should NOT release the returned handle — this function doesn't return
+ * one.
+ */
+bool frontend_wire_start_output(void);
+
+/*
+ * Stop the currently running output (if any) and release its handle.
+ * Idempotent: safe to call when nothing is running.
+ */
+void frontend_wire_stop_output(void);
+
 #ifdef __cplusplus
 }
 #endif

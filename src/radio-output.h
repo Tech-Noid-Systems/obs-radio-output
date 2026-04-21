@@ -13,6 +13,10 @@
 #include <lame/lame.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define RADIO_OUTPUT_RECONNECT_DELAY_MS  5000
 #define RADIO_OUTPUT_RECONNECT_MAX       10
 
@@ -110,3 +114,16 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_START_WITH_STREAMING "start_with_streaming"
 
 extern struct obs_output_info radio_output_info;
+
+/*
+ * Returns the currently instantiated output's context, or NULL if none is
+ * active.  Intended for the dock widget and frontend event handler to
+ * read connection state.  Callers that read state fields must acquire
+ * context->state_mutex — see radio_output_get_active() comment in
+ * radio-output.c for the lifetime guarantee.
+ */
+struct radio_output *radio_output_get_active(void);
+
+#ifdef __cplusplus
+}
+#endif
