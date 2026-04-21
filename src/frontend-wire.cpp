@@ -184,10 +184,20 @@ extern "C" bool frontend_wire_start_output(void)
 
 extern "C" void frontend_wire_stop_output(void)
 {
-	if (!g_active_output_handle)
-		return;
+	/* Stop whichever radio output is currently live, regardless of who
+	 * created it (dock Start button vs. scripts/radio-test.lua).  The
+	 * dock behaves as a universal "stop the running broadcast" remote
+	 * until the Lua driver is retired in §B.4. */
+	struct radio_output *ctx = radio_output_get_active();
+	if (ctx && ctx->output)
+		obs_output_stop(ctx->output);
 
-	obs_output_stop(g_active_output_handle);
-	obs_output_release(g_active_output_handle);
-	g_active_output_handle = nullptr;
+	/* Only release the obs_output_t if we own it — i.e. the dock
+	 * started the broadcast via frontend_wire_start_output().  When Lua
+	 * created the output, Lua owns the ref; calling release here would
+	 * double-decrement and crash on Lua's own release. */
+	if (g_active_output_handle) {
+		obs_output_release(g_active_output_handle);
+		g_active_output_handle = nullptr;
+	}
 }
