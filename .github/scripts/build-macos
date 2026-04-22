@@ -104,6 +104,8 @@ build() {
   cmake_args+=(--preset 'macos-ci')
   cmake_args+=(-DLibShout_ROOT=/tmp/libshout-universal)
   cmake_args+=(-DLibLame_ROOT=/tmp/liblame-universal)
+  cmake_args+=(-DLibOgg_ROOT=/tmp/libogg-universal)
+  cmake_args+=(-DLibOpus_ROOT=/tmp/libopus-universal)
 
   typeset -gx NSUnbufferedIO=YES
 
@@ -208,6 +210,56 @@ build() {
     /tmp/liblame-x86_64/lib/libmp3lame.a \
     -output /tmp/liblame-universal/lib/libmp3lame.a
   cp -r /tmp/liblame-arm64/include/lame /tmp/liblame-universal/include/
+  popd
+  log_group
+
+  log_group "Lipo-merging Universal libogg (for our own Ogg container code)..."
+  # libogg was already built per-arch as a libshout dependency above.  Lipo the
+  # static archives together so the plugin can link against a Universal libogg
+  # without depending on an arch-specific path.
+  mkdir -p /tmp/libogg-universal/lib /tmp/libogg-universal/include
+  lipo -create \
+    /tmp/libogg-arm64/lib/libogg.a \
+    /tmp/libogg-x86_64/lib/libogg.a \
+    -output /tmp/libogg-universal/lib/libogg.a
+  cp -r /tmp/libogg-arm64/include/ogg /tmp/libogg-universal/include/
+  log_group
+
+  log_group "Building Universal libopus..."
+  curl -sSL https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz \
+    -o /tmp/opus.tar.gz
+  tar -xzf /tmp/opus.tar.gz -C /tmp
+  mv /tmp/opus-1.5.2 /tmp/opus-src
+  pushd /tmp/opus-src
+
+  mkdir build-arm64 && pushd build-arm64
+  ../configure --prefix=/tmp/libopus-arm64 \
+    --disable-shared --enable-static \
+    CC=clang \
+    CFLAGS="-arch arm64" LDFLAGS="-arch arm64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  mkdir build-x86_64 && pushd build-x86_64
+  # --host=x86_64-apple-darwin matches the libmp3lame recipe: without it,
+  # AC_CANONICAL_HOST sees the arm64 runner and skips x86-specific code paths,
+  # yet CFLAGS="-arch x86_64" still produces x86_64 object code — arch
+  # mismatch at link time.  CC=clang prevents autoconf from looking for a
+  # nonexistent x86_64-apple-darwin-gcc.
+  ../configure --prefix=/tmp/libopus-x86_64 \
+    --disable-shared --enable-static \
+    --host=x86_64-apple-darwin \
+    CC=clang \
+    CFLAGS="-arch x86_64" LDFLAGS="-arch x86_64"
+  make -j$(sysctl -n hw.ncpu) && make install
+  popd
+
+  mkdir -p /tmp/libopus-universal/lib /tmp/libopus-universal/include
+  lipo -create \
+    /tmp/libopus-arm64/lib/libopus.a \
+    /tmp/libopus-x86_64/lib/libopus.a \
+    -output /tmp/libopus-universal/lib/libopus.a
+  cp -r /tmp/libopus-arm64/include/opus /tmp/libopus-universal/include/
   popd
   log_group
 

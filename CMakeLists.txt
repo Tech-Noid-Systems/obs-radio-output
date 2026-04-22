@@ -51,6 +51,26 @@ else()
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LAME)
 endif()
 
+# Opus encoding via libopus (codec) + libogg (container).  Same Windows
+# optional-until-MSVC-binaries treatment as libshout / libmp3lame.  The
+# encoder path itself lands in a follow-up PR (§C.2 + §C.3); this
+# configure-time wiring is a no-op in source until then.
+if(WIN32)
+  find_package(LibOgg QUIET)
+  find_package(LibOpus QUIET)
+  if(LibOgg_FOUND AND LibOpus_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibOgg::LibOgg LibOpus::LibOpus)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_OPUS)
+  else()
+    message(WARNING "LibOgg / LibOpus not found — Opus encoding not available on Windows")
+  endif()
+else()
+  find_package(LibOgg REQUIRED)
+  find_package(LibOpus REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibOgg::LibOgg LibOpus::LibOpus)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_OPUS)
+endif()
+
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::obs-frontend-api)
