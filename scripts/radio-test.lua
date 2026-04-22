@@ -1,6 +1,17 @@
 -- radio-test.lua
--- Manual test harness for obs-radio-output.
--- Load via OBS Tools → Scripts, then use the Start / Stop buttons.
+--
+-- DEVELOPMENT AID ONLY — not the supported way to use this plugin.
+--
+-- The supported configuration path is Tools → Radio Output… (config dialog).
+-- The supported runtime-control path is the "Radio Output" dock
+-- (View → Docks → Radio Output, with Start / Stop buttons + connection
+-- status).  Both were added in Phase 2 Section B (PRs #22 and #24).
+--
+-- This script is retained as a minimal headless driver for quick
+-- regression testing from the command line / Lua console — it bypasses
+-- the config.json pipeline and hardcodes localhost:8000/stream settings.
+-- Use it when you want to sanity-check the output code path without
+-- exercising the UI.
 
 local obs = obslua
 

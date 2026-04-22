@@ -133,11 +133,22 @@ cmake --install build_x64 --config RelWithDebInfo `
 
 ## Usage
 
-1. Open OBS Studio and go to **Settings → Stream**
-2. Select **Radio Output** from the Service dropdown
-3. Enter your Icecast server hostname, port, mount point, and password
-4. Select your audio codec and bitrate
-5. Click **Start Streaming**
+**One-time configuration:** **Tools → Radio Output…**. Enter your Icecast
+server hostname, port, mount point, and password. Pick codec (MP3 / Opus)
+and bitrate. Optionally enable "Start/stop radio with OBS streaming" if
+you want the radio to piggyback on OBS's main Start/Stop Streaming
+button. Click **OK** — settings persist across OBS restarts.
+
+**Running a broadcast:** open the **Radio Output** dock (**View → Docks
+→ Radio Output**). The dock shows connection status and has **Start** /
+**Stop** buttons. Click Start — the status label goes Disconnected →
+Connecting… → Live (color-coded). Click Stop to end the broadcast.
+
+**Tying to OBS streaming (optional):** if you enable the checkbox in the
+config dialog, clicking OBS's main **Start Streaming** button will also
+auto-start the radio; **Stop Streaming** auto-stops it. Radio failures
+never block OBS video streaming. The dock's Start/Stop buttons remain
+fully functional for manual control regardless of the checkbox.
 
 ## Reporting Bugs
 
