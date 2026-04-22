@@ -140,14 +140,6 @@ void on_tools_menu_clicked(void * /*priv*/)
  */
 void on_frontend_event(enum obs_frontend_event event, void * /*priv*/)
 {
-	/* TEMP DEBUG: fires for every streaming-related event, showing the
-	 * exact config state the handler sees.  Revert before merge. */
-	if (event == OBS_FRONTEND_EVENT_STREAMING_STARTING || event == OBS_FRONTEND_EVENT_STREAMING_STARTED ||
-	    event == OBS_FRONTEND_EVENT_STREAMING_STOPPING || event == OBS_FRONTEND_EVENT_STREAMING_STOPPED) {
-		obs_log(LOG_INFO, "[frontend-wire] DBG event=%d config=%p start_with=%d", (int)event, (void *)g_config,
-			g_config ? (int)obs_data_get_bool(g_config, SETTING_START_WITH_STREAMING) : -1);
-	}
-
 	if (!g_config)
 		return;
 	if (!obs_data_get_bool(g_config, SETTING_START_WITH_STREAMING))
