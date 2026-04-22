@@ -28,6 +28,9 @@ typedef enum {
 	RADIO_STATE_ERROR,
 } radio_state_t;
 
+/* Forward-declared; the full struct lives in radio-encoder.h. */
+struct radio_encoder_ops;
+
 struct radio_output {
 	obs_output_t *output; // back-pointer to OBS output object
 #ifdef HAVE_LIBSHOUT
@@ -46,6 +49,23 @@ struct radio_output {
 	int codec; // RADIO_CODEC_OPUS, RADIO_CODEC_MP3, etc.
 	int bitrate;
 
+	/* Codec dispatch.  Selected in radio_output_start() from the codec id
+	 * (RADIO_CODEC_MP3 / RADIO_CODEC_OPUS).  NULL means no encoder is
+	 * currently active — raw_audio must bail. */
+	const struct radio_encoder_ops *encoder;
+
+	/* Opaque per-encoder state.  Ownership lives with the encoder:
+	 * radio_encoder_ops->init allocates it, ->destroy frees it.  MP3 uses
+	 * lame_gfp instead (historical), so this is only populated by Opus
+	 * today.  Do not touch from outside an encoder callback. */
+	void *encoder_priv;
+
+	/* Ambient samplerate at stream start (Hz).  Set in radio_output_start
+	 * from obs_get_audio_info; used by shout_apply_settings for
+	 * SHOUT_AI_SAMPLERATE. */
+	uint32_t sample_rate;
+	int channels; /* 1 or 2 */
+
 	// Runtime state
 	radio_state_t state;
 	pthread_mutex_t state_mutex;
@@ -63,8 +83,15 @@ struct radio_output {
 
 #ifdef HAVE_LAME
 	lame_global_flags *lame_gfp; /* LAME MP3 encoder handle — NULL when inactive */
+#endif
 
-	/* MP3 sender thread — encodes in raw_audio, sends + syncs here */
+#ifdef HAVE_LIBSHOUT
+	/*
+	 * Shared sender thread.  The encoder writes compressed bytes into
+	 * send_buf from the audio thread; this thread drains them to libshout
+	 * with shout_sync() pacing.  Originally MP3-only (hence the naming in
+	 * older logs); now generic across MP3 and Opus.
+	 */
 #define SEND_BUF_CAPACITY (256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
 	uint8_t *send_buf;
 	size_t send_wpos; /* monotonically increasing write position */

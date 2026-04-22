@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "reconnect.h"
+#include "radio-encoder.h"
 
 #include <plugin-support.h>
 #include <util/platform.h>
+#include <util/bmem.h>
 
 /* -------------------------------------------------------------------------
  * Internal helpers (libshout builds only)
@@ -33,6 +35,39 @@ static bool attempt_connect(struct radio_output *context)
 		obs_log(LOG_WARNING, "[reconnect] shout_open() failed: %s", shout_get_error(shout));
 		shout_free(shout);
 		return false;
+	}
+
+	/*
+	 * Ask the encoder to re-emit any container startup headers and push
+	 * them on the fresh connection BEFORE making context->shout visible
+	 * to the send thread.  Without this, Icecast sees data pages on the
+	 * new source with no BOS/OpusHead and cannot serve listeners (the
+	 * previous mount's cached headers are released when the old source
+	 * disconnects).
+	 *
+	 * Headers go out via shout_send directly rather than send_buf_push +
+	 * the send thread because the send thread would drop them while
+	 * context->shout is still NULL, and flipping the order (publish
+	 * shout, then push headers) lets the send thread ship mid-stream
+	 * audio from the audio thread before the headers.
+	 */
+	if (context->encoder && context->encoder->on_reconnect) {
+		uint8_t *hdrs = NULL;
+		size_t hdr_len = 0;
+		if (context->encoder->on_reconnect(context, &hdrs, &hdr_len) < 0) {
+			obs_log(LOG_ERROR, "[reconnect] encoder header re-emit failed for codec %s",
+				context->encoder->name);
+			/* fall through — keep the connection and cross fingers; a clean
+			 * failure mode would be to shout_close + retry, but that risks
+			 * an infinite loop if the encoder is persistently broken. */
+		} else if (hdrs && hdr_len > 0) {
+			int hdr_ret = shout_send(shout, hdrs, hdr_len);
+			if (hdr_ret != SHOUTERR_SUCCESS) {
+				obs_log(LOG_WARNING, "[reconnect] shout_send() for container headers failed: %s",
+					shout_get_error(shout));
+			}
+		}
+		bfree(hdrs);
 	}
 
 	context->shout = shout;

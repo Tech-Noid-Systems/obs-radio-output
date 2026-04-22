@@ -95,6 +95,8 @@ target_sources(
     src/plugin-main.c
     src/radio-output.c
     src/radio-output.h
+    src/radio-encoder.h
+    src/radio-opus-encoder.c
     src/reconnect.c
     src/reconnect.h
     src/frontend-wire.cpp
