@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QFormLayout>
 #include <QLineEdit>
 #include <QSpinBox>
 
@@ -47,14 +48,24 @@ private slots:
 private: // NOLINT(readability-redundant-access-specifiers) — keeps data members visually separate from Qt slots
 	obs_data_t *settings_;
 
+	/* Server group: the protocol combo drives mount-row visibility via
+	 * the protocol-changed slot. */
+	QComboBox *protocol_;
 	QLineEdit *host_;
 	QSpinBox *port_;
 	QLineEdit *mount_;
 	QLineEdit *password_;
+
+	QFormLayout *server_form_;
+	int mount_row_index_;
+
 	QComboBox *codec_;
 	QComboBox *bitrate_;
 	QCheckBox *reconnect_enabled_;
 	QSpinBox *reconnect_delay_;
 	QSpinBox *reconnect_max_;
 	QCheckBox *start_with_streaming_;
+
+private slots: // NOLINT(readability-redundant-access-specifiers)
+	void onProtocolChanged(int index);
 };

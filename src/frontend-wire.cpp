@@ -81,6 +81,7 @@ void apply_defaults(obs_data_t *data)
 	obs_data_set_default_int(data, SETTING_RECONNECT_DELAY, 5);
 	obs_data_set_default_int(data, SETTING_RECONNECT_MAX, 10);
 	obs_data_set_default_bool(data, SETTING_START_WITH_STREAMING, false);
+	obs_data_set_default_int(data, SETTING_PROTOCOL, RADIO_PROTOCOL_ICECAST);
 }
 
 void load_config_from_disk()

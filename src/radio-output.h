@@ -81,6 +81,11 @@ struct radio_output {
 #define RADIO_CODEC_MP3    1
 #define RADIO_CODEC_VORBIS 2 // Phase 2
 
+// Protocol identifiers for the config + UI.  Mapped to libshout's
+// SHOUT_PROTOCOL_HTTP / SHOUT_PROTOCOL_ICY in shout_apply_settings.
+#define RADIO_PROTOCOL_ICECAST   0
+#define RADIO_PROTOCOL_SHOUTCAST 1
+
 static inline void set_state(struct radio_output *context, radio_state_t new_state)
 {
 	pthread_mutex_lock(&context->state_mutex);
@@ -112,6 +117,7 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_RECONNECT_DELAY      "reconnect_delay"
 #define SETTING_RECONNECT_MAX        "reconnect_max"
 #define SETTING_START_WITH_STREAMING "start_with_streaming"
+#define SETTING_PROTOCOL             "protocol"
 
 extern struct obs_output_info radio_output_info;
 

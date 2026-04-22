@@ -33,11 +33,16 @@ namespace {
 /* Common internet-radio bitrates populated into the combo. */
 constexpr int kBitrates[] = {32, 48, 64, 96, 128, 192, 256, 320};
 
-QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QLineEdit *&host, QSpinBox *&port, QLineEdit *&mount,
-			  QLineEdit *&password)
+QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol, QLineEdit *&host, QSpinBox *&port,
+			  QLineEdit *&mount, QLineEdit *&password, QFormLayout *&form_out, int &mount_row_index_out)
 {
 	auto *group = new QGroupBox(obs_module_text("RadioOutput.Server.Group"), parent);
 	auto *form = new QFormLayout(group);
+
+	protocol = new QComboBox(group);
+	protocol->addItem(obs_module_text("RadioOutput.Server.Protocol.Icecast"), RADIO_PROTOCOL_ICECAST);
+	protocol->addItem(obs_module_text("RadioOutput.Server.Protocol.SHOUTcast"), RADIO_PROTOCOL_SHOUTCAST);
+	form->addRow(obs_module_text("RadioOutput.Server.Protocol"), protocol);
 
 	host = new QLineEdit(group);
 	form->addRow(obs_module_text("RadioOutput.Server.Host"), host);
@@ -48,12 +53,14 @@ QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QLineEdit *&host, QSp
 	form->addRow(obs_module_text("RadioOutput.Server.Port"), port);
 
 	mount = new QLineEdit(group);
+	mount_row_index_out = form->rowCount(); /* remember for setRowVisible() when protocol changes */
 	form->addRow(obs_module_text("RadioOutput.Server.Mount"), mount);
 
 	password = new QLineEdit(group);
 	password->setEchoMode(QLineEdit::Password);
 	form->addRow(obs_module_text("RadioOutput.Server.Password"), password);
 
+	form_out = form;
 	return group;
 }
 
@@ -127,7 +134,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	setMinimumWidth(420);
 
 	auto *layout = new QVBoxLayout(this);
-	layout->addWidget(buildServerGroup(this, host_, port_, mount_, password_));
+	layout->addWidget(
+		buildServerGroup(this, protocol_, host_, port_, mount_, password_, server_form_, mount_row_index_));
 	layout->addWidget(buildAudioGroup(this, codec_, bitrate_));
 	layout->addWidget(buildReconnectGroup(this, reconnect_enabled_, reconnect_delay_, reconnect_max_));
 	layout->addWidget(buildIntegrationGroup(this, start_with_streaming_));
@@ -136,8 +144,11 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	layout->addWidget(buttons);
 	connect(buttons, &QDialogButtonBox::accepted, this, &RadioOutputConfigDialog::onAccept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	connect(protocol_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&RadioOutputConfigDialog::onProtocolChanged);
 
 	/* Populate widgets from the current settings. */
+	selectByData(protocol_, (int)obs_data_get_int(settings_, SETTING_PROTOCOL));
 	host_->setText(QString::fromUtf8(obs_data_get_string(settings_, SETTING_HOST)));
 	port_->setValue((int)obs_data_get_int(settings_, SETTING_PORT));
 	mount_->setText(QString::fromUtf8(obs_data_get_string(settings_, SETTING_MOUNT)));
@@ -148,10 +159,24 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	reconnect_delay_->setValue((int)obs_data_get_int(settings_, SETTING_RECONNECT_DELAY));
 	reconnect_max_->setValue((int)obs_data_get_int(settings_, SETTING_RECONNECT_MAX));
 	start_with_streaming_->setChecked(obs_data_get_bool(settings_, SETTING_START_WITH_STREAMING));
+
+	/* Apply initial mount visibility based on the loaded protocol. */
+	onProtocolChanged(protocol_->currentIndex());
+}
+
+void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
+{
+	/* SHOUTcast v1 has no concept of a mount path; hide the Mount row so
+	 * the UI matches what the protocol actually supports.  The value is
+	 * preserved in the obs_data_t so toggling back to Icecast restores
+	 * the previous mount without re-typing. */
+	const bool is_shoutcast = (protocol_->currentData().toInt() == RADIO_PROTOCOL_SHOUTCAST);
+	server_form_->setRowVisible(mount_row_index_, !is_shoutcast);
 }
 
 void RadioOutputConfigDialog::onAccept()
 {
+	obs_data_set_int(settings_, SETTING_PROTOCOL, protocol_->currentData().toInt());
 	obs_data_set_string(settings_, SETTING_HOST, host_->text().toUtf8().constData());
 	obs_data_set_int(settings_, SETTING_PORT, port_->value());
 	obs_data_set_string(settings_, SETTING_MOUNT, mount_->text().toUtf8().constData());
