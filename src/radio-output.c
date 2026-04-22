@@ -45,6 +45,7 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->password = bstrdup(obs_data_get_string(settings, SETTING_PASSWORD));
 	context->codec = (int)obs_data_get_int(settings, SETTING_CODEC);
 	context->bitrate = (int)obs_data_get_int(settings, SETTING_BITRATE);
+	context->protocol = (int)obs_data_get_int(settings, SETTING_PROTOCOL);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	/* Setting stores seconds; convert to milliseconds for internal use. */
@@ -179,7 +180,13 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	shout_set_mount(shout, context->mount);
 	shout_set_password(shout, context->password);
 	shout_set_agent(shout, agent);
-	shout_set_protocol(shout, SHOUT_PROTOCOL_HTTP);
+
+	/* libshout protocol mapping.  SHOUT_PROTOCOL_ICY is SHOUTcast v1
+	 * (no mount path, ICY metadata headers); SHOUT_PROTOCOL_HTTP is
+	 * Icecast 2.x (standard HTTP PUT / SOURCE with a mount path). */
+	const int shout_proto = (context->protocol == RADIO_PROTOCOL_SHOUTCAST) ? SHOUT_PROTOCOL_ICY
+										: SHOUT_PROTOCOL_HTTP;
+	shout_set_protocol(shout, shout_proto);
 
 	/* libshout 2.4.6: shout_set_content_format() only maps SHOUT_FORMAT_MP3
 	 * to "audio/mpeg" when usage == SHOUT_USAGE_AUDIO.  Without it the
@@ -306,6 +313,15 @@ static bool radio_output_start(void *data)
 	obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
 	return false;
 #else
+	/* SHOUTcast v1 (ICY) only carries MP3.  Warn loudly if the user
+	 * picked Opus or Vorbis alongside SHOUTcast — the connection will
+	 * almost certainly be rejected by the server and we want the log
+	 * to make the cause obvious. */
+	if (context->protocol == RADIO_PROTOCOL_SHOUTCAST && context->codec != RADIO_CODEC_MP3) {
+		obs_log(LOG_WARNING,
+			"SHOUTcast v1 protocol only supports MP3; selected codec is likely to be rejected by the server");
+	}
+
 	/* --- Initialize audio encoder --- */
 	if (context->codec == RADIO_CODEC_MP3) {
 #ifdef HAVE_LAME
@@ -580,6 +596,7 @@ static void radio_output_get_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, SETTING_RECONNECT_DELAY, 5);
 	obs_data_set_default_int(settings, SETTING_RECONNECT_MAX, 10);
 	obs_data_set_default_bool(settings, SETTING_START_WITH_STREAMING, false);
+	obs_data_set_default_int(settings, SETTING_PROTOCOL, RADIO_PROTOCOL_ICECAST);
 }
 
 struct obs_output_info radio_output_info = {
