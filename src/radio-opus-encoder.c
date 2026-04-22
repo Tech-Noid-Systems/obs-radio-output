@@ -61,6 +61,7 @@ struct opus_state {
 
 	uint32_t sample_rate; /* must be 48000 (libopus constraint for our path) */
 	int channels;         /* 1 or 2 */
+	opus_int32 preskip;   /* queried at init; re-used when re-emitting headers on reconnect */
 
 	/* Interleaved PCM accumulator (holds up to one 20 ms frame). */
 	float accum[OPUS_FRAME_SIZE * 2];
@@ -68,6 +69,10 @@ struct opus_state {
 
 	int64_t packetno;
 	int64_t granulepos;
+
+	/* Reconnect counter — xor'd into the Ogg serial on each reset so
+	 * back-to-back reconnects never collide on the same serial. */
+	unsigned int reconnect_epoch;
 };
 
 /*
@@ -149,6 +154,95 @@ static int emit_one_frame(struct opus_state *st, uint8_t *out, size_t cap, size_
 	return 0;
 }
 
+/*
+ * Build OpusHead + OpusTags packets, push them through st->os, and flush
+ * the resulting pages into a fresh bmalloc'd buffer returned via
+ * out_headers/out_bytes.  Shared between init() and on_reconnect() — the
+ * only difference between the two call sites is whether ogg_stream_state
+ * is new or just-reset.
+ *
+ * Expects st->os to be freshly initialized and st->packetno = 0.
+ * Returns true on success, false if libogg rejects a packetin or a bmalloc
+ * fails — in practice both should be unreachable.
+ */
+static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_headers, size_t *out_bytes)
+{
+	*out_headers = NULL;
+	*out_bytes = 0;
+
+	/* ---- OpusHead (RFC 7845 §5.1, 19 bytes for channel mapping family 0) ---- */
+	uint8_t head[19];
+	memcpy(head, "OpusHead", 8);
+	head[8] = 1;                     /* version */
+	head[9] = (uint8_t)st->channels; /* output channel count */
+	head[10] = (uint8_t)(st->preskip & 0xFF);
+	head[11] = (uint8_t)((st->preskip >> 8) & 0xFF);
+	head[12] = (uint8_t)(st->sample_rate & 0xFF);
+	head[13] = (uint8_t)((st->sample_rate >> 8) & 0xFF);
+	head[14] = (uint8_t)((st->sample_rate >> 16) & 0xFF);
+	head[15] = (uint8_t)((st->sample_rate >> 24) & 0xFF);
+	head[16] = 0; /* output gain low (0 = unity) */
+	head[17] = 0; /* output gain high */
+	head[18] = 0; /* channel mapping family */
+
+	ogg_packet op_head = {0};
+	op_head.packet = head;
+	op_head.bytes = sizeof(head);
+	op_head.b_o_s = 1;
+	op_head.e_o_s = 0;
+	op_head.granulepos = 0;
+	op_head.packetno = st->packetno++;
+	if (ogg_stream_packetin(&st->os, &op_head) != 0) {
+		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusHead) failed");
+		return false;
+	}
+
+	/* ---- OpusTags (RFC 7845 §5.2) ---- */
+	const char *vendor = "obs-radio-output";
+	const size_t vendor_len = strlen(vendor);
+	const size_t tags_len = 8 + 4 + vendor_len + 4;
+	uint8_t *tags = bmalloc(tags_len);
+	memcpy(tags, "OpusTags", 8);
+	const uint32_t vlen32 = (uint32_t)vendor_len;
+	tags[8] = (uint8_t)(vlen32 & 0xFF);
+	tags[9] = (uint8_t)((vlen32 >> 8) & 0xFF);
+	tags[10] = (uint8_t)((vlen32 >> 16) & 0xFF);
+	tags[11] = (uint8_t)((vlen32 >> 24) & 0xFF);
+	memcpy(tags + 12, vendor, vendor_len);
+	tags[12 + vendor_len + 0] = 0;
+	tags[12 + vendor_len + 1] = 0;
+	tags[12 + vendor_len + 2] = 0;
+	tags[12 + vendor_len + 3] = 0;
+
+	ogg_packet op_tags = {0};
+	op_tags.packet = tags;
+	op_tags.bytes = (long)tags_len;
+	op_tags.b_o_s = 0;
+	op_tags.e_o_s = 0;
+	op_tags.granulepos = 0;
+	op_tags.packetno = st->packetno++;
+	if (ogg_stream_packetin(&st->os, &op_tags) != 0) {
+		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusTags) failed");
+		bfree(tags);
+		return false;
+	}
+
+	/* Spec: OpusHead and OpusTags each MUST live on their own page; flush
+	 * forces them out separately. */
+	uint8_t *pages = NULL;
+	size_t pages_len = 0;
+	size_t pages_cap = 0;
+	ogg_page page;
+	while (ogg_stream_flush(&st->os, &page))
+		append_page(&pages, &pages_len, &pages_cap, &page);
+
+	bfree(tags);
+
+	*out_headers = pages;
+	*out_bytes = pages_len;
+	return true;
+}
+
 static bool opus_init(struct radio_output *context, uint32_t sample_rate, int channels, uint8_t **out_headers,
 		      size_t *out_bytes)
 {
@@ -191,99 +285,79 @@ static bool opus_init(struct radio_output *context, uint32_t sample_rate, int ch
 
 	/* Pre-skip: samples the decoder discards at stream start to account for
 	 * encoder lookahead.  Passed through in OpusHead so the player drops
-	 * the right amount.  Default 3840 if the query fails (shouldn't). */
-	opus_int32 preskip = 3840;
-	opus_encoder_ctl(st->enc, OPUS_GET_LOOKAHEAD(&preskip));
+	 * the right amount.  Default 3840 if the query fails (shouldn't).
+	 * Stashed on st so on_reconnect() can re-emit OpusHead without
+	 * re-querying. */
+	st->preskip = 3840;
+	opus_encoder_ctl(st->enc, OPUS_GET_LOOKAHEAD(&st->preskip));
 
-	/* Random-ish Ogg serial number — any int32 that doesn't collide with a
-	 * second logical stream in the same file/stream is fine.  We only ever
-	 * carry one logical stream, so any value is fine. */
+	/* Random-ish Ogg serial number.  Any int32 that doesn't collide with a
+	 * second logical stream on the same physical stream is fine; we only
+	 * ever carry one logical stream per connection. */
 	unsigned int serial = (unsigned int)time(NULL);
 	serial ^= (unsigned int)(uintptr_t)st;
 	ogg_stream_init(&st->os, (int)serial);
 	st->os_initialized = true;
 
-	/* ---- OpusHead (RFC 7845 §5.1, 19 bytes for channel mapping family 0) ---- */
-	uint8_t head[19];
-	memcpy(head, "OpusHead", 8);
-	head[8] = 1;                 /* version */
-	head[9] = (uint8_t)channels; /* output channel count */
-	head[10] = (uint8_t)(preskip & 0xFF);
-	head[11] = (uint8_t)((preskip >> 8) & 0xFF);
-	head[12] = (uint8_t)(sample_rate & 0xFF);
-	head[13] = (uint8_t)((sample_rate >> 8) & 0xFF);
-	head[14] = (uint8_t)((sample_rate >> 16) & 0xFF);
-	head[15] = (uint8_t)((sample_rate >> 24) & 0xFF);
-	head[16] = 0; /* output gain low (0 = unity) */
-	head[17] = 0; /* output gain high */
-	head[18] = 0; /* channel mapping family */
-
-	ogg_packet op_head = {0};
-	op_head.packet = head;
-	op_head.bytes = sizeof(head);
-	op_head.b_o_s = 1;
-	op_head.e_o_s = 0;
-	op_head.granulepos = 0;
-	op_head.packetno = st->packetno++;
-	if (ogg_stream_packetin(&st->os, &op_head) != 0) {
-		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusHead) failed");
+	if (!emit_opus_container_headers(st, out_headers, out_bytes)) {
 		ogg_stream_clear(&st->os);
 		opus_encoder_destroy(st->enc);
 		bfree(st);
 		return false;
 	}
-
-	/* ---- OpusTags (RFC 7845 §5.2) ---- */
-	const char *vendor = "obs-radio-output";
-	const size_t vendor_len = strlen(vendor);
-	const size_t tags_len = 8 + 4 + vendor_len + 4;
-	uint8_t *tags = bmalloc(tags_len);
-	memcpy(tags, "OpusTags", 8);
-	const uint32_t vlen32 = (uint32_t)vendor_len;
-	tags[8] = (uint8_t)(vlen32 & 0xFF);
-	tags[9] = (uint8_t)((vlen32 >> 8) & 0xFF);
-	tags[10] = (uint8_t)((vlen32 >> 16) & 0xFF);
-	tags[11] = (uint8_t)((vlen32 >> 24) & 0xFF);
-	memcpy(tags + 12, vendor, vendor_len);
-	tags[12 + vendor_len + 0] = 0;
-	tags[12 + vendor_len + 1] = 0;
-	tags[12 + vendor_len + 2] = 0;
-	tags[12 + vendor_len + 3] = 0;
-
-	ogg_packet op_tags = {0};
-	op_tags.packet = tags;
-	op_tags.bytes = (long)tags_len;
-	op_tags.b_o_s = 0;
-	op_tags.e_o_s = 0;
-	op_tags.granulepos = 0;
-	op_tags.packetno = st->packetno++;
-	if (ogg_stream_packetin(&st->os, &op_tags) != 0) {
-		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusTags) failed");
-		bfree(tags);
-		ogg_stream_clear(&st->os);
-		opus_encoder_destroy(st->enc);
-		bfree(st);
-		return false;
-	}
-
-	/* Spec says OpusHead and OpusTags each MUST live on their own page; the
-	 * convention is to force two flushes right here. */
-	uint8_t *pages = NULL;
-	size_t pages_len = 0;
-	size_t pages_cap = 0;
-	ogg_page page;
-	while (ogg_stream_flush(&st->os, &page))
-		append_page(&pages, &pages_len, &pages_cap, &page);
-
-	bfree(tags);
 
 	context->encoder_priv = st;
-	*out_headers = pages;
-	*out_bytes = pages_len;
 
 	obs_log(LOG_INFO, "Opus encoder: %u Hz, %d ch, %d kbps, pre-skip %d", sample_rate, channels, context->bitrate,
-		preskip);
+		st->preskip);
 	return true;
+}
+
+static int opus_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+{
+	struct opus_state *st = context->encoder_priv;
+	*out_headers = NULL;
+	*out_bytes = 0;
+
+	if (!st) {
+		obs_log(LOG_ERROR, "[opus] on_reconnect called without encoder state");
+		return -1;
+	}
+
+	/* Reset the Ogg container.  Icecast treats the new source connection
+	 * as a fresh stream, so listeners need a BOS page with OpusHead before
+	 * they can decode.  A new serial is required — a logical stream
+	 * continues across pages only if its serial matches.
+	 *
+	 * The OpusEncoder itself (and the PCM accumulator) are intentionally
+	 * preserved: perceptual state like the pitch predictor and LPC
+	 * residuals is still valid across the TCP blip, and whatever partial
+	 * frame was in st->accum would otherwise be lost. */
+	if (st->os_initialized) {
+		ogg_stream_clear(&st->os);
+		st->os_initialized = false;
+	}
+	st->reconnect_epoch++;
+	unsigned int serial = (unsigned int)time(NULL);
+	serial ^= (unsigned int)(uintptr_t)st;
+	serial ^= st->reconnect_epoch * 0x9E3779B1u; /* golden-ratio hash step */
+	ogg_stream_init(&st->os, (int)serial);
+	st->os_initialized = true;
+
+	/* Restart the packet and granule counters for the new logical stream.
+	 * A listener joining this new stream has no idea the previous one
+	 * existed; from their POV playback begins at gp=0. */
+	st->packetno = 0;
+	st->granulepos = 0;
+
+	if (!emit_opus_container_headers(st, out_headers, out_bytes)) {
+		obs_log(LOG_ERROR, "[opus] failed to re-emit container headers on reconnect");
+		return -1;
+	}
+
+	obs_log(LOG_INFO, "[opus] re-emitted Ogg container headers after reconnect (%zu bytes, serial 0x%08x)",
+		*out_bytes, (unsigned int)serial);
+	return 0;
 }
 
 static void opus_destroy(struct radio_output *context)
@@ -400,6 +474,7 @@ const struct radio_encoder_ops radio_encoder_opus = {
 	.encode_frame = opus_encode_frame,
 	.flush = opus_flush,
 	.max_output_for = opus_max_output_for,
+	.on_reconnect = opus_on_reconnect,
 };
 
 #else /* !HAVE_OPUS — stub so the plugin still links when libopus is absent */
@@ -448,6 +523,14 @@ static size_t opus_stub_max_output_for(struct radio_output *context, size_t fram
 	return 0;
 }
 
+static int opus_stub_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+{
+	UNUSED_PARAMETER(context);
+	*out_headers = NULL;
+	*out_bytes = 0;
+	return 0;
+}
+
 const struct radio_encoder_ops radio_encoder_opus = {
 	.name = "opus",
 	.shout_format = 0,
@@ -456,6 +539,7 @@ const struct radio_encoder_ops radio_encoder_opus = {
 	.encode_frame = opus_stub_encode_frame,
 	.flush = opus_stub_flush,
 	.max_output_for = opus_stub_max_output_for,
+	.on_reconnect = opus_stub_on_reconnect,
 };
 
 #endif /* HAVE_OPUS */

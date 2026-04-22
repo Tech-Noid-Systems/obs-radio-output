@@ -70,6 +70,28 @@ struct radio_encoder_ops {
 	int (*flush)(struct radio_output *context, uint8_t *out, size_t cap);
 
 	/*
+	 * Called from the reconnect thread after shout_open() succeeds on the
+	 * new connection, BEFORE context->shout is made visible to the send
+	 * thread.  Encoders with container formats that require startup
+	 * headers (Ogg/Opus: OpusHead + OpusTags pages) reset their container
+	 * state, re-emit those headers, and return them via out_headers /
+	 * out_bytes — same ownership contract as init().  Encoders without
+	 * container overhead (MP3) return 0 bytes.
+	 *
+	 * This exists because on a reconnect Icecast treats the new source
+	 * connection as a fresh stream: the old mount's cached container
+	 * headers are gone, and listeners that rejoin (or joined against the
+	 * new Icecast instance after a crash) cannot decode Ogg/Opus without
+	 * a BOS page.  Frame-synced codecs like MP3 don't care.
+	 *
+	 * The encoder's compression state (OpusEncoder perceptual context,
+	 * LAME state) is intentionally preserved across reconnect — only the
+	 * container is reset.  Returns 0 on success (even if 0 bytes written)
+	 * and -1 on error.
+	 */
+	int (*on_reconnect)(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes);
+
+	/*
 	 * Upper bound on bytes encode_frame() may produce for `frames` input
 	 * samples per channel.  Used by radio_output_raw_audio to size its
 	 * scratch buffer.  Must account for any pending internal buffering.

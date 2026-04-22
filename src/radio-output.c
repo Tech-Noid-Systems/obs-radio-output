@@ -397,6 +397,16 @@ static size_t mp3_encoder_max_output_for(struct radio_output *context, size_t fr
 	return (size_t)(1.25f * (float)frames) + 7200;
 }
 
+static int mp3_encoder_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+{
+	UNUSED_PARAMETER(context);
+	/* MP3 is frame-synced — decoders resync on the next frame header.  No
+	 * container metadata to re-emit; the LAME encoder keeps its state. */
+	*out_headers = NULL;
+	*out_bytes = 0;
+	return 0;
+}
+
 const struct radio_encoder_ops radio_encoder_mp3 = {
 	.name = "mp3",
 #ifdef HAVE_LIBSHOUT
@@ -409,6 +419,7 @@ const struct radio_encoder_ops radio_encoder_mp3 = {
 	.encode_frame = mp3_encoder_encode_frame,
 	.flush = mp3_encoder_flush,
 	.max_output_for = mp3_encoder_max_output_for,
+	.on_reconnect = mp3_encoder_on_reconnect,
 };
 #else  /* !HAVE_LAME */
 static bool mp3_stub_init(struct radio_output *context, uint32_t sample_rate, int channels, uint8_t **out_headers,
@@ -450,6 +461,13 @@ static size_t mp3_stub_max_output_for(struct radio_output *context, size_t frame
 	UNUSED_PARAMETER(frames);
 	return 0;
 }
+static int mp3_stub_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+{
+	UNUSED_PARAMETER(context);
+	*out_headers = NULL;
+	*out_bytes = 0;
+	return 0;
+}
 const struct radio_encoder_ops radio_encoder_mp3 = {
 	.name = "mp3",
 	.shout_format = 0,
@@ -458,6 +476,7 @@ const struct radio_encoder_ops radio_encoder_mp3 = {
 	.encode_frame = mp3_stub_encode_frame,
 	.flush = mp3_stub_flush,
 	.max_output_for = mp3_stub_max_output_for,
+	.on_reconnect = mp3_stub_on_reconnect,
 };
 #endif /* HAVE_LAME */
 
