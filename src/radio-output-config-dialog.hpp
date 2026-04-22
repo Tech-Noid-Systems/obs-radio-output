@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QFormLayout>
 #include <QLineEdit>
 #include <QSpinBox>
 
