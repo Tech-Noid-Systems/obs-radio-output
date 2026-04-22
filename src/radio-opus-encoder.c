@@ -1,0 +1,461 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+/*
+ * Opus encoder — libopus (codec) + libogg (container).
+ *
+ * Implements the radio_encoder_ops vtable so the rest of radio-output.c
+ * can treat codec selection as a dispatch through context->encoder.
+ *
+ * Pipeline:
+ *   1. init()   — create OpusEncoder + ogg_stream_state; build OpusHead +
+ *                 OpusTags packets; flush both into header pages returned
+ *                 to the caller.  Those pages are queued on the shared
+ *                 send buffer so they hit the wire before audio.
+ *   2. encode() — interleave incoming PCM into a 20 ms accumulator.  When
+ *                 full (960 samples/ch @ 48 kHz), call opus_encode_float,
+ *                 wrap the packet in an ogg_packet, push through the
+ *                 stream state, and pull out any pages ready for emission.
+ *   3. flush()  — encode a final frame with e_o_s set (zero-padded if we
+ *                 had no residual audio) and force-flush any remaining
+ *                 pages.  Emits the terminating Ogg page.
+ *
+ * Design choices:
+ *   • Require 48 kHz input.  OBS's default is 48 kHz; if the user has
+ *     lowered it we fail init with a clear message rather than silently
+ *     piping mis-rated PCM into libopus.
+ *   • Mono/stereo via channel mapping family 0.  Family 1 (surround) is
+ *     out of scope for internet radio.
+ *   • Packets go through ogg_stream_pageout during the audio loop, then
+ *     ogg_stream_flush at teardown.  Default Ogg pagination (~4 KB per
+ *     page) yields ~250 ms of buffering — negligible next to our 14 s
+ *     ring buffer.
+ */
+
+#include "radio-encoder.h"
+#include "radio-output.h"
+
+#include <plugin-support.h>
+#include <util/base.h>
+#include <util/bmem.h>
+
+#ifdef HAVE_OPUS
+
+#include <opus/opus.h>
+#include <ogg/ogg.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define OPUS_FRAME_SIZE 960  /* 20 ms at 48 kHz */
+#define OPUS_MAX_PACKET 4000 /* RFC 7845 practical upper bound for 20 ms */
+
+/*
+ * Per-output Opus state.  Lives in radio_output::encoder_priv; allocated
+ * in opus_init, released in opus_destroy.
+ */
+struct opus_state {
+	OpusEncoder *enc;
+	ogg_stream_state os;
+	bool os_initialized;
+
+	uint32_t sample_rate; /* must be 48000 (libopus constraint for our path) */
+	int channels;         /* 1 or 2 */
+
+	/* Interleaved PCM accumulator (holds up to one 20 ms frame). */
+	float accum[OPUS_FRAME_SIZE * 2];
+	size_t accum_fill; /* sample-frames currently buffered */
+
+	int64_t packetno;
+	int64_t granulepos;
+};
+
+/*
+ * Append one Ogg page (header + body) to a fixed-size output buffer.
+ * Returns false if the write would overflow cap; the caller then reports
+ * -1 to raw_audio, which drops the pages — better than a wild write.
+ * The ring buffer is 256 KB so this limit should never fire in practice
+ * for a single audio callback.
+ */
+static bool write_page_fixed(uint8_t *out, size_t cap, size_t *pos, const ogg_page *og)
+{
+	size_t need = *pos + (size_t)og->header_len + (size_t)og->body_len;
+	if (need > cap)
+		return false;
+	memcpy(out + *pos, og->header, (size_t)og->header_len);
+	*pos += (size_t)og->header_len;
+	memcpy(out + *pos, og->body, (size_t)og->body_len);
+	*pos += (size_t)og->body_len;
+	return true;
+}
+
+/*
+ * Append one Ogg page to a growable bmalloc buffer.  Used only by init()
+ * to build the header-page blob, which is a few hundred bytes total.
+ */
+static void append_page(uint8_t **dst, size_t *dst_len, size_t *dst_cap, const ogg_page *og)
+{
+	size_t need = *dst_len + (size_t)og->header_len + (size_t)og->body_len;
+	if (need > *dst_cap) {
+		size_t new_cap = *dst_cap ? *dst_cap : 1024;
+		while (new_cap < need)
+			new_cap *= 2;
+		*dst = brealloc(*dst, new_cap);
+		*dst_cap = new_cap;
+	}
+	memcpy(*dst + *dst_len, og->header, (size_t)og->header_len);
+	*dst_len += (size_t)og->header_len;
+	memcpy(*dst + *dst_len, og->body, (size_t)og->body_len);
+	*dst_len += (size_t)og->body_len;
+}
+
+/*
+ * Encode the single full 20 ms frame currently in st->accum, wrap it as
+ * an Ogg packet, push through the stream, and pull whatever pages come
+ * out into the caller's fixed-size buffer.  Caller manages whether to
+ * use pageout (during normal audio) or flush (at teardown).
+ */
+static int emit_one_frame(struct opus_state *st, uint8_t *out, size_t cap, size_t *pos, bool last)
+{
+	uint8_t pkt[OPUS_MAX_PACKET];
+	int pkt_bytes = opus_encode_float(st->enc, st->accum, OPUS_FRAME_SIZE, pkt, (opus_int32)sizeof(pkt));
+	if (pkt_bytes < 0) {
+		obs_log(LOG_ERROR, "opus_encode_float failed: %s", opus_strerror(pkt_bytes));
+		return -1;
+	}
+
+	st->granulepos += OPUS_FRAME_SIZE;
+
+	ogg_packet op = {0};
+	op.packet = pkt;
+	op.bytes = pkt_bytes;
+	op.b_o_s = 0;
+	op.e_o_s = last ? 1 : 0;
+	op.granulepos = st->granulepos;
+	op.packetno = st->packetno++;
+	if (ogg_stream_packetin(&st->os, &op) != 0) {
+		obs_log(LOG_ERROR, "ogg_stream_packetin failed");
+		return -1;
+	}
+
+	ogg_page page;
+	int (*page_fn)(ogg_stream_state *, ogg_page *) = last ? ogg_stream_flush : ogg_stream_pageout;
+	while (page_fn(&st->os, &page)) {
+		if (!write_page_fixed(out, cap, pos, &page)) {
+			obs_log(LOG_ERROR, "Opus: scratch buffer overflow emitting page");
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static bool opus_init(struct radio_output *context, uint32_t sample_rate, int channels, uint8_t **out_headers,
+		      size_t *out_bytes)
+{
+	*out_headers = NULL;
+	*out_bytes = 0;
+
+	if (sample_rate != 48000) {
+		obs_log(LOG_ERROR,
+			"Opus requires 48 kHz audio; OBS is at %u Hz (change in Settings → Audio → Sample Rate)",
+			sample_rate);
+		return false;
+	}
+	if (channels != 1 && channels != 2) {
+		obs_log(LOG_ERROR, "Opus: unsupported channel count %d (must be 1 or 2)", channels);
+		return false;
+	}
+
+	struct opus_state *st = bzalloc(sizeof(struct opus_state));
+	st->sample_rate = sample_rate;
+	st->channels = channels;
+
+	int err = 0;
+	st->enc = opus_encoder_create((opus_int32)sample_rate, channels, OPUS_APPLICATION_AUDIO, &err);
+	if (!st->enc || err != OPUS_OK) {
+		obs_log(LOG_ERROR, "opus_encoder_create failed: %s", opus_strerror(err));
+		bfree(st);
+		return false;
+	}
+
+	/* Configure for internet-radio-style stereo music:
+	 *   - bitrate from user setting (kbps → bps)
+	 *   - signal hint = music (vs. voice)
+	 *   - complexity 10 = highest encoder quality
+	 *   - VBR on (default true, but set explicitly)
+	 */
+	opus_encoder_ctl(st->enc, OPUS_SET_BITRATE((opus_int32)context->bitrate * 1000));
+	opus_encoder_ctl(st->enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+	opus_encoder_ctl(st->enc, OPUS_SET_COMPLEXITY(10));
+	opus_encoder_ctl(st->enc, OPUS_SET_VBR(1));
+
+	/* Pre-skip: samples the decoder discards at stream start to account for
+	 * encoder lookahead.  Passed through in OpusHead so the player drops
+	 * the right amount.  Default 3840 if the query fails (shouldn't). */
+	opus_int32 preskip = 3840;
+	opus_encoder_ctl(st->enc, OPUS_GET_LOOKAHEAD(&preskip));
+
+	/* Random-ish Ogg serial number — any int32 that doesn't collide with a
+	 * second logical stream in the same file/stream is fine.  We only ever
+	 * carry one logical stream, so any value is fine. */
+	unsigned int serial = (unsigned int)time(NULL);
+	serial ^= (unsigned int)(uintptr_t)st;
+	ogg_stream_init(&st->os, (int)serial);
+	st->os_initialized = true;
+
+	/* ---- OpusHead (RFC 7845 §5.1, 19 bytes for channel mapping family 0) ---- */
+	uint8_t head[19];
+	memcpy(head, "OpusHead", 8);
+	head[8] = 1;                 /* version */
+	head[9] = (uint8_t)channels; /* output channel count */
+	head[10] = (uint8_t)(preskip & 0xFF);
+	head[11] = (uint8_t)((preskip >> 8) & 0xFF);
+	head[12] = (uint8_t)(sample_rate & 0xFF);
+	head[13] = (uint8_t)((sample_rate >> 8) & 0xFF);
+	head[14] = (uint8_t)((sample_rate >> 16) & 0xFF);
+	head[15] = (uint8_t)((sample_rate >> 24) & 0xFF);
+	head[16] = 0; /* output gain low (0 = unity) */
+	head[17] = 0; /* output gain high */
+	head[18] = 0; /* channel mapping family */
+
+	ogg_packet op_head = {0};
+	op_head.packet = head;
+	op_head.bytes = sizeof(head);
+	op_head.b_o_s = 1;
+	op_head.e_o_s = 0;
+	op_head.granulepos = 0;
+	op_head.packetno = st->packetno++;
+	if (ogg_stream_packetin(&st->os, &op_head) != 0) {
+		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusHead) failed");
+		ogg_stream_clear(&st->os);
+		opus_encoder_destroy(st->enc);
+		bfree(st);
+		return false;
+	}
+
+	/* ---- OpusTags (RFC 7845 §5.2) ---- */
+	const char *vendor = "obs-radio-output";
+	const size_t vendor_len = strlen(vendor);
+	const size_t tags_len = 8 + 4 + vendor_len + 4;
+	uint8_t *tags = bmalloc(tags_len);
+	memcpy(tags, "OpusTags", 8);
+	const uint32_t vlen32 = (uint32_t)vendor_len;
+	tags[8] = (uint8_t)(vlen32 & 0xFF);
+	tags[9] = (uint8_t)((vlen32 >> 8) & 0xFF);
+	tags[10] = (uint8_t)((vlen32 >> 16) & 0xFF);
+	tags[11] = (uint8_t)((vlen32 >> 24) & 0xFF);
+	memcpy(tags + 12, vendor, vendor_len);
+	tags[12 + vendor_len + 0] = 0;
+	tags[12 + vendor_len + 1] = 0;
+	tags[12 + vendor_len + 2] = 0;
+	tags[12 + vendor_len + 3] = 0;
+
+	ogg_packet op_tags = {0};
+	op_tags.packet = tags;
+	op_tags.bytes = (long)tags_len;
+	op_tags.b_o_s = 0;
+	op_tags.e_o_s = 0;
+	op_tags.granulepos = 0;
+	op_tags.packetno = st->packetno++;
+	if (ogg_stream_packetin(&st->os, &op_tags) != 0) {
+		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusTags) failed");
+		bfree(tags);
+		ogg_stream_clear(&st->os);
+		opus_encoder_destroy(st->enc);
+		bfree(st);
+		return false;
+	}
+
+	/* Spec says OpusHead and OpusTags each MUST live on their own page; the
+	 * convention is to force two flushes right here. */
+	uint8_t *pages = NULL;
+	size_t pages_len = 0;
+	size_t pages_cap = 0;
+	ogg_page page;
+	while (ogg_stream_flush(&st->os, &page))
+		append_page(&pages, &pages_len, &pages_cap, &page);
+
+	bfree(tags);
+
+	context->encoder_priv = st;
+	*out_headers = pages;
+	*out_bytes = pages_len;
+
+	obs_log(LOG_INFO, "Opus encoder: %u Hz, %d ch, %d kbps, pre-skip %d", sample_rate, channels, context->bitrate,
+		preskip);
+	return true;
+}
+
+static void opus_destroy(struct radio_output *context)
+{
+	struct opus_state *st = context->encoder_priv;
+	if (!st)
+		return;
+
+	if (st->os_initialized) {
+		ogg_stream_clear(&st->os);
+		st->os_initialized = false;
+	}
+	if (st->enc) {
+		opus_encoder_destroy(st->enc);
+		st->enc = NULL;
+	}
+	bfree(st);
+	context->encoder_priv = NULL;
+}
+
+static int opus_encode_frame(struct radio_output *context, const float *left, const float *right, size_t frames,
+			     uint8_t *out, size_t cap)
+{
+	struct opus_state *st = context->encoder_priv;
+	if (!st)
+		return -1;
+
+	size_t pos = 0;
+	size_t i = 0;
+
+	while (i < frames) {
+		size_t take = OPUS_FRAME_SIZE - st->accum_fill;
+		size_t avail = frames - i;
+		if (take > avail)
+			take = avail;
+
+		if (st->channels == 2) {
+			for (size_t k = 0; k < take; k++) {
+				st->accum[(st->accum_fill + k) * 2 + 0] = left[i + k];
+				st->accum[(st->accum_fill + k) * 2 + 1] = right[i + k];
+			}
+		} else {
+			/* Mono downmix — average the two channels.  OBS always
+			 * hands us stereo in data[0]/data[1]; if mono is ever
+			 * added to the UI this keeps both channels represented. */
+			for (size_t k = 0; k < take; k++)
+				st->accum[st->accum_fill + k] = 0.5f * (left[i + k] + right[i + k]);
+		}
+		st->accum_fill += take;
+		i += take;
+
+		if (st->accum_fill == OPUS_FRAME_SIZE) {
+			if (emit_one_frame(st, out, cap, &pos, false) < 0)
+				return -1;
+			st->accum_fill = 0;
+		}
+	}
+
+	return (int)pos;
+}
+
+static int opus_flush(struct radio_output *context, uint8_t *out, size_t cap)
+{
+	struct opus_state *st = context->encoder_priv;
+	if (!st)
+		return 0;
+
+	size_t pos = 0;
+
+	/* Always emit exactly one terminating frame with e_o_s set so the
+	 * decoder sees a proper EOS marker.  Zero-pad whatever residual PCM
+	 * sits in the accumulator — silence is the most honest filler. */
+	const size_t total = OPUS_FRAME_SIZE * (size_t)st->channels;
+	const size_t start = st->accum_fill * (size_t)st->channels;
+	for (size_t k = start; k < total; k++)
+		st->accum[k] = 0.0f;
+	st->accum_fill = OPUS_FRAME_SIZE;
+	if (emit_one_frame(st, out, cap, &pos, true) < 0)
+		return -1;
+	st->accum_fill = 0;
+
+	/* Force any still-buffered pages out of ogg_stream. */
+	ogg_page page;
+	while (ogg_stream_flush(&st->os, &page)) {
+		if (!write_page_fixed(out, cap, &pos, &page))
+			return -1;
+	}
+
+	return (int)pos;
+}
+
+static size_t opus_max_output_for(struct radio_output *context, size_t frames)
+{
+	struct opus_state *st = context->encoder_priv;
+	if (!st)
+		return 16 * 1024;
+
+	/* Upper bound for this call: ceil((new frames + residual) / 960)
+	 * packets, each bounded by OPUS_MAX_PACKET, plus Ogg page overhead. */
+	size_t total = frames + st->accum_fill;
+	size_t packets = total / OPUS_FRAME_SIZE + 1;
+	return packets * (OPUS_MAX_PACKET + 300);
+}
+
+const struct radio_encoder_ops radio_encoder_opus = {
+	.name = "opus",
+#ifdef HAVE_LIBSHOUT
+	.shout_format = SHOUT_FORMAT_OGG,
+#else
+	.shout_format = 0,
+#endif
+	.init = opus_init,
+	.destroy = opus_destroy,
+	.encode_frame = opus_encode_frame,
+	.flush = opus_flush,
+	.max_output_for = opus_max_output_for,
+};
+
+#else /* !HAVE_OPUS — stub so the plugin still links when libopus is absent */
+
+static bool opus_stub_init(struct radio_output *context, uint32_t sample_rate, int channels, uint8_t **out_headers,
+			   size_t *out_bytes)
+{
+	UNUSED_PARAMETER(context);
+	UNUSED_PARAMETER(sample_rate);
+	UNUSED_PARAMETER(channels);
+	*out_headers = NULL;
+	*out_bytes = 0;
+	obs_log(LOG_ERROR, "Opus encoding not available — rebuild with libopus + libogg");
+	return false;
+}
+
+static void opus_stub_destroy(struct radio_output *context)
+{
+	UNUSED_PARAMETER(context);
+}
+
+static int opus_stub_encode_frame(struct radio_output *context, const float *left, const float *right, size_t frames,
+				  uint8_t *out, size_t cap)
+{
+	UNUSED_PARAMETER(context);
+	UNUSED_PARAMETER(left);
+	UNUSED_PARAMETER(right);
+	UNUSED_PARAMETER(frames);
+	UNUSED_PARAMETER(out);
+	UNUSED_PARAMETER(cap);
+	return -1;
+}
+
+static int opus_stub_flush(struct radio_output *context, uint8_t *out, size_t cap)
+{
+	UNUSED_PARAMETER(context);
+	UNUSED_PARAMETER(out);
+	UNUSED_PARAMETER(cap);
+	return 0;
+}
+
+static size_t opus_stub_max_output_for(struct radio_output *context, size_t frames)
+{
+	UNUSED_PARAMETER(context);
+	UNUSED_PARAMETER(frames);
+	return 0;
+}
+
+const struct radio_encoder_ops radio_encoder_opus = {
+	.name = "opus",
+	.shout_format = 0,
+	.init = opus_stub_init,
+	.destroy = opus_stub_destroy,
+	.encode_frame = opus_stub_encode_frame,
+	.flush = opus_stub_flush,
+	.max_output_for = opus_stub_max_output_for,
+};
+
+#endif /* HAVE_OPUS */
