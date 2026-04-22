@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest an enhancement or new capability.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.  Describing the underlying *problem* you're trying to solve is usually more useful than a specific solution — leave room for alternative approaches.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The real-world workflow or pain point.  (e.g. "I want to stream to two Icecast servers at once for redundancy" or "I want Now Playing metadata pulled from my DJ software automatically.")
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed solution (optional)
+      description: If you have a specific idea of how this should work, describe it here.  Otherwise leave blank and let the discussion find the approach.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: Other ways you've thought about solving the same problem — including "do nothing" if that's reasonable.
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to contribute this?
+      description: Not a commitment — just helps plan.  Plugin is GPL-2.0+ and welcomes PRs.
+      options:
+        - I'd like to implement this myself (may need guidance)
+        - I could help test / review
+        - I'd rather just file it and let the maintainer decide
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, references, screenshots of similar features in other tools, etc.

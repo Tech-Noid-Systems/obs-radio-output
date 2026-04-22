@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Build / install help
+    url: https://github.com/Tech-Noid-Systems/obs-radio-output#building-from-source
+    about: Per-platform setup instructions are in the README.
+  - name: OBS Studio general support
+    url: https://obsproject.com/kb/
+    about: For OBS Studio issues unrelated to this plugin, use the official OBS knowledge base / forum.

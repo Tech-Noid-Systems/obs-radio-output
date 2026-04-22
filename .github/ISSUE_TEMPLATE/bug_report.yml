@@ -1,0 +1,107 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.  Fill in what you know — even partial information helps a lot.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown in the OBS log at startup — `[obs-radio-output] plugin loaded successfully (version X.Y.Z)`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: obs-version
+    attributes:
+      label: OBS Studio version
+      description: Help → About, or the title bar on macOS.
+      placeholder: "31.1.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - Windows (x64)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: server
+    attributes:
+      label: Icecast / SHOUTcast server
+      description: Which server are you streaming to?
+      options:
+        - Local Icecast (moul/icecast Docker image)
+        - Self-hosted Icecast (other)
+        - AzuraCast
+        - Shoutcast
+        - Hosted service (specify in the description)
+        - Other / unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include what you were trying to do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered list of steps that trigger the bug, starting from a freshly-launched OBS.
+      placeholder: |
+        1. Open OBS and load `scripts/radio-test.lua` via Tools → Scripts
+        2. Click Start Radio Output
+        3. Stop the Icecast container with `docker stop icecast`
+        4. Wait for max-retries, then click Stop
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Paste the OBS log section around the bug.  Log location:
+        - macOS: `~/Library/Application Support/obs-studio/logs/`
+        - Linux: `~/.config/obs-studio/logs/`
+        - Windows: `%APPDATA%\obs-studio\logs\`
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else — screenshots, `docker logs icecast` output, crash dumps (`~/Library/Logs/DiagnosticReports/` on macOS), etc.
