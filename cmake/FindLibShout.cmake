@@ -13,6 +13,11 @@ find_path(
 
 if(WIN32)
   list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a .dll.a)
+elseif(APPLE)
+  # macOS CI builds libshout as a Universal static archive (.a) with openssl
+  # linked in; prefer the static over a .dylib so find_library picks the
+  # archive when both happen to be present.
+  list(PREPEND CMAKE_FIND_LIBRARY_SUFFIXES .a)
 endif()
 
 find_library(

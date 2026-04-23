@@ -106,6 +106,7 @@ build() {
   cmake_args+=(-DLibLame_ROOT=/tmp/liblame-universal)
   cmake_args+=(-DLibOgg_ROOT=/tmp/libogg-universal)
   cmake_args+=(-DLibOpus_ROOT=/tmp/libopus-universal)
+  cmake_args+=(-DOPENSSL_ROOT_DIR=/tmp/openssl-universal)
 
   typeset -gx NSUnbufferedIO=YES
 
@@ -135,6 +136,44 @@ build() {
   popd
   log_group
 
+  log_group "Building Universal openssl@3 (libshout TLS backend)..."
+  # libshout's configure accepts --with-openssl=<prefix> and reads -I$prefix/include
+  # and -L$prefix/lib directly (XIPH_PATH_SSL macro, no pkg-config involvement),
+  # so per-arch prefixes work without PKG_CONFIG_PATH juggling.  `no-shared` builds
+  # libssl.a + libcrypto.a only; `no-tests` skips the self-test build which takes
+  # ~minutes and is unnecessary in CI.  openssl's build system is in-tree (not
+  # out-of-tree like autotools); `make clean` between arches resets object files.
+  curl -sSL --retry 3 https://www.openssl.org/source/openssl-3.3.2.tar.gz \
+    -o /tmp/openssl.tar.gz
+  tar -xzf /tmp/openssl.tar.gz -C /tmp
+  mv /tmp/openssl-3.3.2 /tmp/openssl-src
+  pushd /tmp/openssl-src
+
+  ./Configure darwin64-arm64-cc --prefix=/tmp/openssl-arm64 \
+    no-shared no-tests -arch arm64
+  make -j$(sysctl -n hw.ncpu) && make install_sw
+  make clean
+
+  ./Configure darwin64-x86_64-cc --prefix=/tmp/openssl-x86_64 \
+    no-shared no-tests -arch x86_64
+  make -j$(sysctl -n hw.ncpu) && make install_sw
+  popd
+
+  # Lipo the static archives into a Universal pair so the plugin can link a
+  # single arch-agnostic openssl at the cmake layer (see CMakeLists.txt APPLE
+  # block).  Headers are identical between the two arch prefixes except for
+  # opensslconf.h, which branches on __i386__/__x86_64__/__arm64__ at compile
+  # time — so a single header copy works for both slices of the fat binary.
+  mkdir -p /tmp/openssl-universal/lib /tmp/openssl-universal/include
+  for lib in libssl.a libcrypto.a; do
+    lipo -create \
+      /tmp/openssl-arm64/lib/${lib} \
+      /tmp/openssl-x86_64/lib/${lib} \
+      -output /tmp/openssl-universal/lib/${lib}
+  done
+  cp -R /tmp/openssl-arm64/include/openssl /tmp/openssl-universal/include/
+  log_group
+
   log_group "Building Universal libshout..."
   curl -sSL https://downloads.xiph.org/releases/libshout/libshout-2.4.6.tar.gz \
     -o /tmp/libshout.tar.gz
@@ -142,36 +181,62 @@ build() {
   mv /tmp/libshout-2.4.6 /tmp/icecast-libshout
   pushd /tmp/icecast-libshout
 
-  # arm64 slice — use arm64 libogg; disable optional deps to avoid arch mismatch
-  # -Wno-error=implicit-function-declaration: libshout 2.4.6 legacy.c/icy.c miss
-  # stdlib.h/stdio.h includes; Apple Clang 16 promotes this warning to an error.
+  # arm64 slice — static build with arch-matched openssl + libogg.  Optional
+  # codec deps (theora/speex/opus) stay disabled: we only use MP3 and Opus,
+  # and libshout's "opus" support is for Ogg-Opus container passthrough which
+  # we handle ourselves via libogg in src/radio-opus-encoder.c.
+  # -Wno-error=implicit-function-declaration: libshout 2.4.6 legacy.c/icy.c
+  # miss stdlib.h/stdio.h includes; Apple Clang 16 promotes this warning to
+  # an error.
   mkdir build-arm64 && pushd build-arm64
   PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-arm64 \
-      --without-openssl --without-theora --without-speex --without-opus \
+      --disable-shared --enable-static \
+      --with-openssl=/tmp/openssl-arm64 \
+      --without-theora --without-speex --without-opus \
       CFLAGS="-arch arm64 -Wno-error=implicit-function-declaration" \
       LDFLAGS="-arch arm64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
-  # x86_64 slice — use x86_64 libogg; disable optional deps to avoid arch mismatch
+  # x86_64 slice — same flags against the x86_64 openssl prefix.
   mkdir build-x86_64 && pushd build-x86_64
   PKG_CONFIG_LIBDIR=/tmp/libogg-x86_64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-x86_64 \
-      --without-openssl --without-theora --without-speex --without-opus \
+      --disable-shared --enable-static \
+      --with-openssl=/tmp/openssl-x86_64 \
+      --without-theora --without-speex --without-opus \
       CFLAGS="-arch x86_64 -Wno-error=implicit-function-declaration" \
       LDFLAGS="-arch x86_64"
   make -j$(sysctl -n hw.ncpu) && make install
   popd
 
-  # Merge with lipo
+  # Merge static archives with lipo.  The switch from .dylib to .a here is
+  # deliberate: a .dylib would embed openssl's .a at libshout-link time and we
+  # could stop there, but a static archive means the plugin's .plugin bundle
+  # has zero external runtime deps (verified via `otool -L`), which matches
+  # how liblame and libopus are packaged.  Cost: the plugin itself must now
+  # link ssl+crypto (done in CMakeLists.txt); benefit: one self-contained
+  # bundle with no dyld resolution of libssl/libcrypto at OBS launch.
   mkdir -p /tmp/libshout-universal/lib /tmp/libshout-universal/include
   lipo -create \
-    /tmp/libshout-arm64/lib/libshout.dylib \
-    /tmp/libshout-x86_64/lib/libshout.dylib \
-    -output /tmp/libshout-universal/lib/libshout.dylib
+    /tmp/libshout-arm64/lib/libshout.a \
+    /tmp/libshout-x86_64/lib/libshout.a \
+    -output /tmp/libshout-universal/lib/libshout.a
   cp -r /tmp/libshout-arm64/include/shout /tmp/libshout-universal/include/
   popd
+
+  # TLS-symbol sanity check.  If libshout's configure silently fell back to
+  # the non-TLS path (e.g. a malformed --with-openssl path), the archive will
+  # still build and link — but `shout_set_tls` will return SHOUTERR_UNSUPPORTED
+  # at runtime with no link-time warning.  Grep for _SSL_connect in the
+  # archive as an unambiguous "TLS was compiled in" proof; fail the CI job
+  # here, not at §E.2 acceptance testing time.
+  if ! nm /tmp/libshout-universal/lib/libshout.a 2>/dev/null | grep -q _SSL_connect; then
+    log_error "libshout.a has no _SSL_connect symbol — TLS did not compile in"
+    return 2
+  fi
+  log_info "libshout.a TLS symbols present (_SSL_connect found)"
   log_group
 
   log_group "Building Universal libmp3lame..."
