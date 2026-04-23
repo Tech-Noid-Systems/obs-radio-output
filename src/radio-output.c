@@ -47,6 +47,7 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->codec = (int)obs_data_get_int(settings, SETTING_CODEC);
 	context->bitrate = (int)obs_data_get_int(settings, SETTING_BITRATE);
 	context->protocol = (int)obs_data_get_int(settings, SETTING_PROTOCOL);
+	context->use_tls = obs_data_get_bool(settings, SETTING_TLS);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	/* Setting stores seconds; convert to milliseconds for internal use. */
@@ -179,6 +180,23 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	shout_set_mount(shout, context->mount);
 	shout_set_password(shout, context->password);
 	shout_set_agent(shout, agent);
+
+	/* TLS mode.  SHOUT_TLS_AUTO_NO_PLAIN attempts TLS and refuses to
+	 * silently fall back to plain HTTP — credentials must not leak
+	 * unencrypted if the server turns out not to support TLS.  Plain AUTO
+	 * would downgrade silently, which is a trust violation.  SHOUTcast v1
+	 * (ICY) has no TLS in the protocol, so the combo is nonsensical:
+	 * warn, then force DISABLED so shout_open gives a clean plain-ICY
+	 * error rather than a confusing "TLS unsupported". */
+	if (context->protocol == RADIO_PROTOCOL_SHOUTCAST && context->use_tls) {
+		obs_log(LOG_WARNING, "TLS is not supported by SHOUTcast v1 (ICY protocol); "
+				     "ignoring the TLS setting for this connection");
+		shout_set_tls(shout, SHOUT_TLS_DISABLED);
+	} else if (context->use_tls) {
+		shout_set_tls(shout, SHOUT_TLS_AUTO_NO_PLAIN);
+	} else {
+		shout_set_tls(shout, SHOUT_TLS_DISABLED);
+	}
 
 	/* libshout protocol mapping.  SHOUT_PROTOCOL_ICY is SHOUTcast v1
 	 * (no mount path, ICY metadata headers); SHOUT_PROTOCOL_HTTP is
@@ -542,7 +560,19 @@ static bool radio_output_start(void *data)
 
 	int err = shout_open(context->shout);
 	if (err != SHOUTERR_SUCCESS) {
-		obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(context->shout));
+		/* Surface TLS-specific failures with actionable text rather than
+		 * libshout's generic error string, which often reads as an
+		 * opaque socket/TLS mashup. */
+		if (err == SHOUTERR_NOTLS) {
+			obs_log(LOG_ERROR, "TLS requested but the server does not support it; "
+					   "either disable TLS in Tools → Radio Output… or use a TLS-capable server");
+		} else if (err == SHOUTERR_TLSBADCERT) {
+			obs_log(LOG_ERROR,
+				"TLS certificate validation failed — server cert not trusted by the OS CA store, "
+				"or hostname does not match cert CN/SAN");
+		} else {
+			obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(context->shout));
+		}
 		shout_free(context->shout);
 		context->shout = NULL;
 		context->encoder->destroy(context);
@@ -674,6 +704,7 @@ static obs_properties_t *radio_output_get_properties(void *data)
 	obs_properties_add_text(server, SETTING_MOUNT, obs_module_text("RadioOutput.Server.Mount"), OBS_TEXT_DEFAULT);
 	obs_properties_add_text(server, SETTING_PASSWORD, obs_module_text("RadioOutput.Server.Password"),
 				OBS_TEXT_PASSWORD);
+	obs_properties_add_bool(server, SETTING_TLS, obs_module_text("RadioOutput.Server.UseTLS"));
 	obs_properties_add_group(props, "server", obs_module_text("RadioOutput.Server.Group"), OBS_GROUP_NORMAL,
 				 server);
 
@@ -729,6 +760,7 @@ static void radio_output_get_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, SETTING_RECONNECT_MAX, 10);
 	obs_data_set_default_bool(settings, SETTING_START_WITH_STREAMING, false);
 	obs_data_set_default_int(settings, SETTING_PROTOCOL, RADIO_PROTOCOL_ICECAST);
+	obs_data_set_default_bool(settings, SETTING_TLS, false);
 }
 
 struct obs_output_info radio_output_info = {

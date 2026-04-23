@@ -48,16 +48,19 @@ private slots:
 private: // NOLINT(readability-redundant-access-specifiers) — keeps data members visually separate from Qt slots
 	obs_data_t *settings_;
 
-	/* Server group: the protocol combo drives mount-row visibility via
-	 * the protocol-changed slot. */
+	/* Server group: the protocol combo drives mount- and TLS-row
+	 * visibility via the protocol-changed slot (SHOUTcast v1 has neither
+	 * a mount path nor TLS). */
 	QComboBox *protocol_;
 	QLineEdit *host_;
 	QSpinBox *port_;
 	QLineEdit *mount_;
 	QLineEdit *password_;
+	QCheckBox *tls_enabled_;
 
 	QFormLayout *server_form_;
 	int mount_row_index_;
+	int tls_row_index_;
 
 	QComboBox *codec_;
 	QComboBox *bitrate_;

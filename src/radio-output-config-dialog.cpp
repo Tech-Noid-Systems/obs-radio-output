@@ -34,7 +34,8 @@ namespace {
 constexpr int kBitrates[] = {32, 48, 64, 96, 128, 192, 256, 320};
 
 QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol, QLineEdit *&host, QSpinBox *&port,
-			  QLineEdit *&mount, QLineEdit *&password, QFormLayout *&form_out, int &mount_row_index_out)
+			  QLineEdit *&mount, QLineEdit *&password, QCheckBox *&tls_enabled, QFormLayout *&form_out,
+			  int &mount_row_index_out, int &tls_row_index_out)
 {
 	auto *group = new QGroupBox(obs_module_text("RadioOutput.Server.Group"), parent);
 	auto *form = new QFormLayout(group);
@@ -59,6 +60,10 @@ QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol,
 	password = new QLineEdit(group);
 	password->setEchoMode(QLineEdit::Password);
 	form->addRow(obs_module_text("RadioOutput.Server.Password"), password);
+
+	tls_enabled = new QCheckBox(obs_module_text("RadioOutput.Server.UseTLS"), group);
+	tls_row_index_out = form->rowCount();
+	form->addRow(QString(), tls_enabled);
 
 	form_out = form;
 	return group;
@@ -134,8 +139,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	setMinimumWidth(420);
 
 	auto *layout = new QVBoxLayout(this);
-	layout->addWidget(
-		buildServerGroup(this, protocol_, host_, port_, mount_, password_, server_form_, mount_row_index_));
+	layout->addWidget(buildServerGroup(this, protocol_, host_, port_, mount_, password_, tls_enabled_, server_form_,
+					   mount_row_index_, tls_row_index_));
 	layout->addWidget(buildAudioGroup(this, codec_, bitrate_));
 	layout->addWidget(buildReconnectGroup(this, reconnect_enabled_, reconnect_delay_, reconnect_max_));
 	layout->addWidget(buildIntegrationGroup(this, start_with_streaming_));
@@ -153,6 +158,7 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	port_->setValue((int)obs_data_get_int(settings_, SETTING_PORT));
 	mount_->setText(QString::fromUtf8(obs_data_get_string(settings_, SETTING_MOUNT)));
 	password_->setText(QString::fromUtf8(obs_data_get_string(settings_, SETTING_PASSWORD)));
+	tls_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_TLS));
 	selectByData(codec_, (int)obs_data_get_int(settings_, SETTING_CODEC));
 	selectByData(bitrate_, (int)obs_data_get_int(settings_, SETTING_BITRATE));
 	reconnect_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_RECONNECT));
@@ -166,12 +172,13 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 
 void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
 {
-	/* SHOUTcast v1 has no concept of a mount path; hide the Mount row so
-	 * the UI matches what the protocol actually supports.  The value is
-	 * preserved in the obs_data_t so toggling back to Icecast restores
-	 * the previous mount without re-typing. */
+	/* SHOUTcast v1 has neither a mount path nor TLS support; hide both
+	 * rows so the UI matches what the protocol actually offers.  Values
+	 * are preserved in the obs_data_t so toggling back to Icecast
+	 * restores the previous mount/TLS choice without re-typing. */
 	const bool is_shoutcast = (protocol_->currentData().toInt() == RADIO_PROTOCOL_SHOUTCAST);
 	server_form_->setRowVisible(mount_row_index_, !is_shoutcast);
+	server_form_->setRowVisible(tls_row_index_, !is_shoutcast);
 }
 
 void RadioOutputConfigDialog::onAccept()
@@ -181,6 +188,7 @@ void RadioOutputConfigDialog::onAccept()
 	obs_data_set_int(settings_, SETTING_PORT, port_->value());
 	obs_data_set_string(settings_, SETTING_MOUNT, mount_->text().toUtf8().constData());
 	obs_data_set_string(settings_, SETTING_PASSWORD, password_->text().toUtf8().constData());
+	obs_data_set_bool(settings_, SETTING_TLS, tls_enabled_->isChecked());
 	obs_data_set_int(settings_, SETTING_CODEC, codec_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_BITRATE, bitrate_->currentData().toInt());
 	obs_data_set_bool(settings_, SETTING_RECONNECT, reconnect_enabled_->isChecked());
