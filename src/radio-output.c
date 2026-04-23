@@ -562,7 +562,12 @@ static bool radio_output_start(void *data)
 	if (err != SHOUTERR_SUCCESS) {
 		/* Surface TLS-specific failures with actionable text rather than
 		 * libshout's generic error string, which often reads as an
-		 * opaque socket/TLS mashup. */
+		 * opaque socket/TLS mashup.  SHOUTERR_NOTLS fires only when the
+		 * server cleanly signals "no TLS" via an HTTP response; plain
+		 * servers that silently eat a TLS ClientHello yield
+		 * SHOUTERR_SOCKET after a ~14s TLS handshake timeout, so when
+		 * use_tls is on and we hit any non-TLS-specific failure, add
+		 * a TLS-may-be-the-cause hint so the user knows what to try. */
 		if (err == SHOUTERR_NOTLS) {
 			obs_log(LOG_ERROR, "TLS requested but the server does not support it; "
 					   "either disable TLS in Tools → Radio Output… or use a TLS-capable server");
@@ -570,6 +575,11 @@ static bool radio_output_start(void *data)
 			obs_log(LOG_ERROR,
 				"TLS certificate validation failed — server cert not trusted by the OS CA store, "
 				"or hostname does not match cert CN/SAN");
+		} else if (context->use_tls) {
+			obs_log(LOG_ERROR,
+				"shout_open() failed with TLS enabled: %s. If the server does not speak TLS on "
+				"this port, uncheck 'Use TLS (HTTPS)' in Tools → Radio Output… and retry",
+				shout_get_error(context->shout));
 		} else {
 			obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(context->shout));
 		}
