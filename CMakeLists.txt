@@ -36,6 +36,20 @@ else()
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
 endif()
 
+if(APPLE)
+  # libshout on macOS ships as a static archive built --with-openssl (see
+  # .github/scripts/build-macos).  The archive references SSL_*/EVP_* symbols
+  # but does not embed their definitions, so the plugin binary has to link
+  # libssl + libcrypto itself.  OPENSSL_USE_STATIC_LIBS makes find_package
+  # prefer .a over .dylib, which keeps the final .plugin bundle free of any
+  # runtime dylib dependency on openssl (verify via `otool -L`).  Ubuntu uses
+  # libshout3-dev's bundled TLS and Windows streaming is still optional, so
+  # this block is Apple-only.
+  set(OPENSSL_USE_STATIC_LIBS ON)
+  find_package(OpenSSL REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
 if(WIN32)
   # MP3 encoding via libmp3lame — optional on Windows until MSVC-compatible binaries are available.
   find_package(LibLame QUIET)
