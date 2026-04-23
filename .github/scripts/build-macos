@@ -187,14 +187,18 @@ build() {
   # codec deps (theora/speex/opus) stay disabled: we only use MP3 and Opus,
   # and libshout's "opus" support is for Ogg-Opus container passthrough which
   # we handle ourselves via libogg in src/radio-opus-encoder.c.
+  # --with-openssl: enable the TLS path (takes no DIR argument on libshout
+  # 2.4.6 — XIPH_PATH_SSL's macro is yes/no; prefix is discovered via
+  # pkg-config).  Point PKG_CONFIG_LIBDIR at both libogg and openssl so
+  # libshout's OGG + openssl probes both hit our arch-matched builds.
   # -Wno-error=implicit-function-declaration: libshout 2.4.6 legacy.c/icy.c
   # miss stdlib.h/stdio.h includes; Apple Clang 16 promotes this warning to
   # an error.
   mkdir build-arm64 && pushd build-arm64
-  PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig \
+  PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig:/tmp/openssl-arm64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-arm64 \
       --disable-shared --enable-static \
-      --with-openssl=/tmp/openssl-arm64 \
+      --with-openssl \
       --without-theora --without-speex --without-opus \
       CFLAGS="-arch arm64 -Wno-error=implicit-function-declaration" \
       LDFLAGS="-arch arm64"
@@ -203,10 +207,10 @@ build() {
 
   # x86_64 slice — same flags against the x86_64 openssl prefix.
   mkdir build-x86_64 && pushd build-x86_64
-  PKG_CONFIG_LIBDIR=/tmp/libogg-x86_64/lib/pkgconfig \
+  PKG_CONFIG_LIBDIR=/tmp/libogg-x86_64/lib/pkgconfig:/tmp/openssl-x86_64/lib/pkgconfig \
     ../configure --prefix=/tmp/libshout-x86_64 \
       --disable-shared --enable-static \
-      --with-openssl=/tmp/openssl-x86_64 \
+      --with-openssl \
       --without-theora --without-speex --without-opus \
       CFLAGS="-arch x86_64 -Wno-error=implicit-function-declaration" \
       LDFLAGS="-arch x86_64"
