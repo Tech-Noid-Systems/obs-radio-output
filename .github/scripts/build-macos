@@ -149,13 +149,15 @@ build() {
   mv /tmp/openssl-3.3.2 /tmp/openssl-src
   pushd /tmp/openssl-src
 
-  ./Configure darwin64-arm64-cc --prefix=/tmp/openssl-arm64 \
-    no-shared no-tests -arch arm64
+  # NB: openssl's darwin64-*-cc targets already imply -arch <foo>; passing
+  # -arch on top of that trips Configure's "target already defined" error
+  # (`target already defined - darwin64-arm64-cc (offending arg: arm64)`).
+  # So just pick the target and don't add redundant arch flags.
+  ./Configure darwin64-arm64-cc --prefix=/tmp/openssl-arm64 no-shared no-tests
   make -j$(sysctl -n hw.ncpu) && make install_sw
   make clean
 
-  ./Configure darwin64-x86_64-cc --prefix=/tmp/openssl-x86_64 \
-    no-shared no-tests -arch x86_64
+  ./Configure darwin64-x86_64-cc --prefix=/tmp/openssl-x86_64 no-shared no-tests
   make -j$(sysctl -n hw.ncpu) && make install_sw
   popd
 
