@@ -51,6 +51,10 @@ int metadata_update(struct radio_output *context, const char *title)
 		return -1;
 	}
 
+	/* Input from Qt arrives as UTF-8 (QString::toUtf8); use the _utf8
+	 * variants so libshout skips the legacy locale→UTF-8 conversion and
+	 * so we don't trip the deprecation warning on libshout ≥ 2.4.6
+	 * (Ubuntu's libshout3-dev was the one that surfaced it). */
 	char song[METADATA_SONG_MAX + 1];
 	snprintf(song, sizeof(song), "%s", title);
 
@@ -59,9 +63,14 @@ int metadata_update(struct radio_output *context, const char *title)
 		obs_log(LOG_ERROR, "metadata: shout_metadata_new() failed");
 		return -1;
 	}
-	shout_metadata_add(meta, "song", song);
+	int err = shout_metadata_add(meta, "song", song);
+	if (err != SHOUTERR_SUCCESS) {
+		obs_log(LOG_WARNING, "metadata update failed: shout_metadata_add() returned %d", err);
+		shout_metadata_free(meta);
+		return -1;
+	}
 
-	int err = shout_set_metadata(shout, meta);
+	err = shout_set_metadata_utf8(shout, meta);
 	shout_metadata_free(meta);
 
 	if (err != SHOUTERR_SUCCESS) {
