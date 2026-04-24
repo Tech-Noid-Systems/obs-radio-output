@@ -62,14 +62,16 @@ int parseIcecastListeners(const QByteArray &body, const QString &mount)
 	};
 
 	if (sources.isArray()) {
-		/* Bind the array to a named local so clang's
-		 * -Wrange-loop-bind-reference doesn't complain about `v`
-		 * referencing a temporary.  The temporary would actually
-		 * survive the loop per C++17 lifetime rules, but the
-		 * warning doesn't know that and we build with -Werror. */
+		/* Index-based iteration rather than range-for: Qt's
+		 * QJsonArray::begin() returns a proxy iterator
+		 * (QJsonValueConstRef), so `for (const QJsonValue &v : arr)`
+		 * binds a reference to a materialized temporary and trips
+		 * clang's -Wrange-loop-bind-reference (upgraded to -Werror
+		 * by CMAKE_COMPILE_WARNING_AS_ERROR).  `arr.at(i)` returns
+		 * QJsonValue by value cleanly. */
 		const QJsonArray arr = sources.toArray();
-		for (const QJsonValue &v : arr) {
-			const int n = matchSource(v.toObject());
+		for (int i = 0; i < arr.size(); ++i) {
+			const int n = matchSource(arr.at(i).toObject());
 			if (n >= 0)
 				return n;
 		}
