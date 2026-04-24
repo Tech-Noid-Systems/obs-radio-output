@@ -62,7 +62,13 @@ int parseIcecastListeners(const QByteArray &body, const QString &mount)
 	};
 
 	if (sources.isArray()) {
-		for (const QJsonValue &v : sources.toArray()) {
+		/* Bind the array to a named local so clang's
+		 * -Wrange-loop-bind-reference doesn't complain about `v`
+		 * referencing a temporary.  The temporary would actually
+		 * survive the loop per C++17 lifetime rules, but the
+		 * warning doesn't know that and we build with -Werror. */
+		const QJsonArray arr = sources.toArray();
+		for (const QJsonValue &v : arr) {
 			const int n = matchSource(v.toObject());
 			if (n >= 0)
 				return n;
