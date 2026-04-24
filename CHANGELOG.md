@@ -26,6 +26,7 @@ Format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - **encoder:** Add codec vtable + libopus/libogg Opus encoder (§C.2 + §C.3) ([d1c1ab0](https://github.com/tech-noid-systems/obs-radio-output/commit/d1c1ab0e90c76fb7240ff7cb410ccbc9cc3367e0))
 - **tls:** Add TLS toggle and map to shout_set_tls with clean error paths ([1d422fe](https://github.com/tech-noid-systems/obs-radio-output/commit/1d422fe1115707ad68cbea663d56b3f90a934d3f))
 - **tls:** Hint at TLS as cause when shout_open fails with use_tls on ([c091124](https://github.com/tech-noid-systems/obs-radio-output/commit/c091124bd36d2d1598671a05d1e342f79e794e12))
+- **metadata:** Add "Now Playing" push via shout_set_metadata + dock input ([7a34f1b](https://github.com/tech-noid-systems/obs-radio-output/commit/7a34f1b4e69a32f17029a51c8bc5fb77f2d54183))
 
 ### Documentation
 
@@ -33,6 +34,7 @@ Format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - **reconnect:** Remove stale encoded_packet references in comments ([5d3e3c7](https://github.com/tech-noid-systems/obs-radio-output/commit/5d3e3c73e695929b61d6186ae40f579997fa2f3d))
 - **readme:** Document contributor formatter prerequisites ([a00a6aa](https://github.com/tech-noid-systems/obs-radio-output/commit/a00a6aa33a9b7d37b53d8900f81a907fcc57639a))
 - **scripts:** Note radio-test.lua is a dev aid; native UI is the supported path ([dc4442f](https://github.com/tech-noid-systems/obs-radio-output/commit/dc4442f3c79a2ddd9c777e3610002eb001fae428))
+- Update CHANGELOG.md for 0.1.0-alpha1 ([4727692](https://github.com/tech-noid-systems/obs-radio-output/commit/4727692eb002c2261aea4902b8f0fe55a4827971))
 
 ### Fixed
 
@@ -66,5 +68,7 @@ Format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - **ui:** Dock Stop button now stops Lua-created outputs via back-pointer ([52c554c](https://github.com/tech-noid-systems/obs-radio-output/commit/52c554c182ca6d42a9af69daf3e370f334f89811))
 - **build:** Include QFormLayout in dialog header for server_form_ member ([d29abc3](https://github.com/tech-noid-systems/obs-radio-output/commit/d29abc3303e738d5cf6305256a9323d0177958e2))
 - **opus:** Re-emit OpusHead+OpusTags on reconnect so listeners can decode ([8356248](https://github.com/tech-noid-systems/obs-radio-output/commit/8356248782a4daf735a88859010cdce225f2f302))
+- **metadata:** Use shout_set_metadata_utf8 and check shout_metadata_add return ([ddcf278](https://github.com/tech-noid-systems/obs-radio-output/commit/ddcf2780a68ed19dc07e31ed1ac1578197563ea0))
+- **metadata:** Drop QtConcurrent — OBS's bundled Qt omits it ([036b59a](https://github.com/tech-noid-systems/obs-radio-output/commit/036b59a1d708fa40ff31013573eae307d9b9ec0d))
 
 
