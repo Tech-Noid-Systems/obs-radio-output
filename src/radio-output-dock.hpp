@@ -21,6 +21,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <QFrame>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTimer>
 
@@ -41,11 +42,16 @@ public:
 private slots:
 	void onStart();
 	void onStop();
+	void onPushMetadata();
 	void pollState();
 
 private: // NOLINT(readability-redundant-access-specifiers) — visually separate Qt slots from members
 	QLabel *status_;
 	QPushButton *start_;
 	QPushButton *stop_;
+	QLabel *nowPlayingLabel_;
+	QLineEdit *nowPlayingEdit_;
+	QPushButton *pushMetadata_;
 	QTimer *poll_;
+	bool metadataInFlight_ = false;
 };

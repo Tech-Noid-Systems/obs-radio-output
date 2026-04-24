@@ -91,8 +91,8 @@ if(ENABLE_FRONTEND_API)
 endif()
 
 if(ENABLE_QT)
-  find_package(Qt6 COMPONENTS Widgets Core)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets)
+  find_package(Qt6 COMPONENTS Widgets Core Concurrent)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::Concurrent)
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
     PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
@@ -113,6 +113,8 @@ target_sources(
     src/radio-opus-encoder.c
     src/reconnect.c
     src/reconnect.h
+    src/metadata.c
+    src/metadata.h
     src/frontend-wire.cpp
     src/frontend-wire.h
     src/radio-output-config-dialog.cpp
