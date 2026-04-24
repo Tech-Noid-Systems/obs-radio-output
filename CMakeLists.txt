@@ -113,6 +113,8 @@ target_sources(
     src/radio-opus-encoder.c
     src/reconnect.c
     src/reconnect.h
+    src/metadata.c
+    src/metadata.h
     src/frontend-wire.cpp
     src/frontend-wire.h
     src/radio-output-config-dialog.cpp

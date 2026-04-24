@@ -19,13 +19,18 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "radio-output-dock.hpp"
 
+#include <QByteArray>
 #include <QHBoxLayout>
+#include <QMetaObject>
+#include <QString>
+#include <QThreadPool>
 #include <QVBoxLayout>
 
 #include <obs-module.h>
 #include <pthread.h>
 
 #include "frontend-wire.h"
+#include "metadata.h"
 #include "radio-output.h"
 
 namespace {
@@ -81,10 +86,23 @@ RadioOutputDock::RadioOutputDock(QWidget *parent) : QFrame(parent)
 	buttons->addWidget(start_);
 	buttons->addWidget(stop_);
 
+	nowPlayingLabel_ = new QLabel(obs_module_text("RadioOutput.Dock.NowPlaying"), this);
+	nowPlayingEdit_ = new QLineEdit(this);
+	nowPlayingEdit_->setPlaceholderText(obs_module_text("RadioOutput.Dock.NowPlaying.Placeholder"));
+	nowPlayingEdit_->setEnabled(false);
+	pushMetadata_ = new QPushButton(obs_module_text("RadioOutput.Dock.NowPlaying.Push"), this);
+	pushMetadata_->setEnabled(false);
+
+	connect(pushMetadata_, &QPushButton::clicked, this, &RadioOutputDock::onPushMetadata);
+	connect(nowPlayingEdit_, &QLineEdit::returnPressed, this, &RadioOutputDock::onPushMetadata);
+
 	auto *layout = new QVBoxLayout(this);
 	layout->addWidget(status_);
 	layout->addLayout(buttons);
-	layout->addStretch(1); /* Reserved vertical space for §F (Now Playing) and §G (listener count). */
+	layout->addWidget(nowPlayingLabel_);
+	layout->addWidget(nowPlayingEdit_);
+	layout->addWidget(pushMetadata_);
+	layout->addStretch(1); /* Reserved vertical space for §G (listener count). */
 
 	poll_ = new QTimer(this);
 	poll_->setInterval(kPollIntervalMs);
@@ -102,6 +120,43 @@ void RadioOutputDock::onStart()
 void RadioOutputDock::onStop()
 {
 	frontend_wire_stop_output();
+}
+
+void RadioOutputDock::onPushMetadata()
+{
+	if (metadataInFlight_)
+		return;
+
+	const QString text = nowPlayingEdit_->text().trimmed();
+	if (text.isEmpty())
+		return;
+
+	/* Cap at 255 UTF-8 bytes to match the C-side truncation so the
+	 * log line here and the on-wire payload agree. */
+	const QByteArray utf8 = text.toUtf8().left(255);
+
+	metadataInFlight_ = true;
+	pushMetadata_->setEnabled(false);
+
+	/* QThreadPool ships in Qt6::Core — QtConcurrent does not ship with
+	 * OBS's bundled Qt frameworks on macOS, so depending on it would
+	 * break plugin loading on every end-user install.  Dispatching via
+	 * the global pool + QMetaObject::invokeMethod(QueuedConnection) gets
+	 * us the same "run off-main-thread, reply on main" flow with zero
+	 * extra framework dependencies.  invokeMethod safely drops the
+	 * reply if `this` has been destroyed before the pool job returns. */
+	QThreadPool::globalInstance()->start([this, utf8] {
+		radio_output_update_metadata(utf8.constData());
+		QMetaObject::invokeMethod(
+			this,
+			[this] {
+				metadataInFlight_ = false;
+				/* Re-run pollState() so the user doesn't wait up
+				 * to 500 ms for the button to re-enable. */
+				pollState();
+			},
+			Qt::QueuedConnection);
+	});
 }
 
 void RadioOutputDock::pollState()
@@ -122,4 +177,8 @@ void RadioOutputDock::pollState()
 			      state == RADIO_STATE_RECONNECTING);
 	start_->setEnabled(!running);
 	stop_->setEnabled(running || state == RADIO_STATE_ERROR);
+
+	const bool connected = (state == RADIO_STATE_CONNECTED);
+	nowPlayingEdit_->setEnabled(connected);
+	pushMetadata_->setEnabled(connected && !metadataInFlight_);
 }
