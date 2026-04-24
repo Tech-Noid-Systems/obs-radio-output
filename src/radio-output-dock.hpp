@@ -25,6 +25,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QPushButton>
 #include <QTimer>
 
+#include "listener-poll.hpp"
+#include "radio-output.h"
+
 /*
  * Persistent OBS dock widget with connection status and Start / Stop
  * buttons.  Registered by frontend-wire.cpp via
@@ -43,6 +46,7 @@ private slots:
 	void onStart();
 	void onStop();
 	void onPushMetadata();
+	void onListenerCount(int count);
 	void pollState();
 
 private: // NOLINT(readability-redundant-access-specifiers) — visually separate Qt slots from members
@@ -52,6 +56,9 @@ private: // NOLINT(readability-redundant-access-specifiers) — visually separat
 	QLabel *nowPlayingLabel_;
 	QLineEdit *nowPlayingEdit_;
 	QPushButton *pushMetadata_;
+	QLabel *listenerLabel_;
+	ListenerPoll *listenerPoll_;
 	QTimer *poll_;
+	radio_state_t lastState_ = RADIO_STATE_DISCONNECTED;
 	bool metadataInFlight_ = false;
 };
