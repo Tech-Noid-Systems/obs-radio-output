@@ -34,6 +34,11 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Checkout Repository 📥
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Check Release Tag ☑️
         id: check
         run: |
@@ -100,6 +105,27 @@ jobs:
             echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
           done
 
+      - name: Generate Release Notes 📝
+        if: fromJSON(steps.check.outputs.validTag)
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Assemble Release Body 🧩
+        if: fromJSON(steps.check.outputs.validTag)
+        run: |
+          : Assemble Release Body 🧩
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+
+          {
+            printf '%s\n\n' "${{ steps.cliff.outputs.content }}"
+            cat "${{ github.workspace }}/CHECKSUMS.txt"
+          } > "${{ github.workspace }}/RELEASE_BODY.md"
+
       - name: Create Release 🛫
         if: fromJSON(steps.check.outputs.validTag)
         id: create_release
@@ -109,7 +135,7 @@ jobs:
           prerelease: ${{ fromJSON(steps.check.outputs.prerelease) }}
           tag_name: ${{ steps.check.outputs.version }}
           name: ${{ needs.build-project.outputs.pluginName }} ${{ steps.check.outputs.version }}
-          body_path: ${{ github.workspace }}/CHECKSUMS.txt
+          body_path: ${{ github.workspace }}/RELEASE_BODY.md
           files: |
             ${{ github.workspace }}/*.exe
             ${{ github.workspace }}/*.zip
