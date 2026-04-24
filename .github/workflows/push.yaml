@@ -93,6 +93,36 @@ jobs:
             done
           done
 
+      - name: Inject Pre-release Suffix into Asset Names 🏷️
+        if: fromJSON(steps.check.outputs.validTag) && contains(steps.check.outputs.version, '-')
+        run: |
+          : Inject Pre-release Suffix into Asset Names 🏷️
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+          shopt -s extglob nullglob
+
+          # CMake's project(VERSION) only accepts numeric major.minor.patch,
+          # so build-project.yaml patches buildspec.json with the numeric
+          # portion of the tag only.  CPack then produces files like
+          # "obs-radio-output-0.1.0-macos-universal.pkg".  For pre-release
+          # tags ("0.1.0-alpha1") we rewrite the filenames here so the
+          # assets carry the full tag name and can't be confused with the
+          # final release's artifacts once we hit 0.1.0.
+          tag="${GITHUB_REF_NAME}"
+          numeric="${tag%%-*}"
+
+          cd "${{ github.workspace }}"
+          for f in @(*.exe|*.zip|*.pkg|*.deb|*.ddeb|*.tar.xz); do
+            [[ -f "$f" ]] || continue
+            new="${f//-${numeric}-/-${tag}-}"
+            if [[ "$new" == "$f" ]]; then
+              new="${f/-${numeric}./-${tag}.}"
+            fi
+            if [[ "$new" != "$f" ]]; then
+              mv "$f" "$new"
+              echo "Renamed: $f -> $new"
+            fi
+          done
+
       - name: Generate Checksums 🪪
         if: fromJSON(steps.check.outputs.validTag)
         run: |

@@ -91,9 +91,15 @@ jobs:
           : Override version from tag 🏷️
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
 
-          jq --arg v "${GITHUB_REF_NAME}" '.version = $v' buildspec.json > buildspec.json.new
+          # CMake's project(VERSION) rejects SemVer pre-release suffixes
+          # ("0.1.0-alpha1" → format-invalid), so strip everything after
+          # the first hyphen before writing to buildspec.json.  The full
+          # tag (including suffix) is reintroduced as a filename-level
+          # rename in push.yaml's create-release job.
+          numeric_version="${GITHUB_REF_NAME%%-*}"
+          jq --arg v "$numeric_version" '.version = $v' buildspec.json > buildspec.json.new
           mv buildspec.json.new buildspec.json
-          echo "Patched buildspec.json version -> ${GITHUB_REF_NAME}"
+          echo "Patched buildspec.json version -> $numeric_version (full tag: ${GITHUB_REF_NAME})"
 
       - name: Set Up Environment 🔧
         id: setup
@@ -209,9 +215,15 @@ jobs:
           : Override version from tag 🏷️
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
 
-          jq --arg v "${GITHUB_REF_NAME}" '.version = $v' buildspec.json > buildspec.json.new
+          # CMake's project(VERSION) rejects SemVer pre-release suffixes
+          # ("0.1.0-alpha1" → format-invalid), so strip everything after
+          # the first hyphen before writing to buildspec.json.  The full
+          # tag (including suffix) is reintroduced as a filename-level
+          # rename in push.yaml's create-release job.
+          numeric_version="${GITHUB_REF_NAME%%-*}"
+          jq --arg v "$numeric_version" '.version = $v' buildspec.json > buildspec.json.new
           mv buildspec.json.new buildspec.json
-          echo "Patched buildspec.json version -> ${GITHUB_REF_NAME}"
+          echo "Patched buildspec.json version -> $numeric_version (full tag: ${GITHUB_REF_NAME})"
 
       - name: Set Up Environment 🔧
         id: setup
@@ -293,9 +305,15 @@ jobs:
           : Override version from tag 🏷️
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
 
-          jq --arg v "${GITHUB_REF_NAME}" '.version = $v' buildspec.json > buildspec.json.new
+          # CMake's project(VERSION) rejects SemVer pre-release suffixes
+          # ("0.1.0-alpha1" → format-invalid), so strip everything after
+          # the first hyphen before writing to buildspec.json.  The full
+          # tag (including suffix) is reintroduced as a filename-level
+          # rename in push.yaml's create-release job.
+          numeric_version="${GITHUB_REF_NAME%%-*}"
+          jq --arg v "$numeric_version" '.version = $v' buildspec.json > buildspec.json.new
           mv buildspec.json.new buildspec.json
-          echo "Patched buildspec.json version -> ${GITHUB_REF_NAME}"
+          echo "Patched buildspec.json version -> $numeric_version (full tag: ${GITHUB_REF_NAME})"
 
       - name: Set Up Environment 🔧
         id: setup
