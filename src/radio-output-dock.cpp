@@ -20,11 +20,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "radio-output-dock.hpp"
 
 #include <QByteArray>
-#include <QFutureWatcher>
 #include <QHBoxLayout>
+#include <QMetaObject>
 #include <QString>
+#include <QThreadPool>
 #include <QVBoxLayout>
-#include <QtConcurrent/QtConcurrentRun>
 
 #include <obs-module.h>
 #include <pthread.h>
@@ -138,16 +138,25 @@ void RadioOutputDock::onPushMetadata()
 	metadataInFlight_ = true;
 	pushMetadata_->setEnabled(false);
 
-	auto *watcher = new QFutureWatcher<bool>(this);
-	connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
-		metadataInFlight_ = false;
-		/* pollState() on the next tick will re-enable the button
-		 * only if we're still connected; re-run it now so the user
-		 * doesn't have to wait up to 500 ms for the UI to catch up. */
-		pollState();
-		watcher->deleteLater();
+	/* QThreadPool ships in Qt6::Core — QtConcurrent does not ship with
+	 * OBS's bundled Qt frameworks on macOS, so depending on it would
+	 * break plugin loading on every end-user install.  Dispatching via
+	 * the global pool + QMetaObject::invokeMethod(QueuedConnection) gets
+	 * us the same "run off-main-thread, reply on main" flow with zero
+	 * extra framework dependencies.  invokeMethod safely drops the
+	 * reply if `this` has been destroyed before the pool job returns. */
+	QThreadPool::globalInstance()->start([this, utf8] {
+		radio_output_update_metadata(utf8.constData());
+		QMetaObject::invokeMethod(
+			this,
+			[this] {
+				metadataInFlight_ = false;
+				/* Re-run pollState() so the user doesn't wait up
+				 * to 500 ms for the button to re-enable. */
+				pollState();
+			},
+			Qt::QueuedConnection);
 	});
-	watcher->setFuture(QtConcurrent::run([utf8] { return radio_output_update_metadata(utf8.constData()); }));
 }
 
 void RadioOutputDock::pollState()
