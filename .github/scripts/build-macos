@@ -235,14 +235,31 @@ build() {
   # TLS-symbol sanity check.  If libshout's configure silently fell back to
   # the non-TLS path (e.g. a malformed --with-openssl path), the archive will
   # still build and link — but `shout_set_tls` will return SHOUTERR_UNSUPPORTED
-  # at runtime with no link-time warning.  Grep for _SSL_connect in the
-  # archive as an unambiguous "TLS was compiled in" proof; fail the CI job
-  # here, not at §E.2 acceptance testing time.
-  if ! nm /tmp/libshout-universal/lib/libshout.a 2>/dev/null | grep -q _SSL_connect; then
-    log_error "libshout.a has no _SSL_connect symbol — TLS did not compile in"
-    return 2
-  fi
-  log_info "libshout.a TLS symbols present (_SSL_connect found)"
+  # at runtime with no link-time warning.  We prove TLS was compiled in by
+  # checking that `shout_tls_new` is DEFINED (T marker) in the archive:
+  # libshout's `src/tls.c` wraps its entire body in `#ifdef HAVE_OPENSSL`,
+  # so if config.h doesn't define HAVE_OPENSSL, `shout_tls_new` never gets
+  # emitted as a symbol — which is exactly the failure mode we want to catch.
+  #
+  # Don't use a raw openssl symbol like `_SSL_connect` here: libshout calls
+  # into openssl through a mix of functions (SSL_new / SSL_do_handshake /
+  # OPENSSL_sk_num / etc.) and the exact entry point set varies by libshout
+  # patch version.  `_shout_tls_new` is libshout's own function and its
+  # existence is an unambiguous "HAVE_OPENSSL was defined at compile time".
+  #
+  # Check the per-arch archives, NOT the lipo'd Universal: nm on a fat file
+  # wrapping two .a archives is non-deterministic about which slice's symbol
+  # table it surfaces on the arm64 runner.  Per-arch archives are plain
+  # ar(1) output and nm reads them reliably.
+  for arch in arm64 x86_64; do
+    local archive=/tmp/libshout-${arch}/lib/libshout.a
+    if ! nm "${archive}" 2>/dev/null | grep -qE ' T _shout_tls_new$'; then
+      log_error "libshout.a (${arch}) has no _shout_tls_new definition — TLS did not compile in"
+      nm "${archive}" 2>&1 | grep -E '_shout_tls_|_shout_connection_starttls' | head -20 || true
+      return 2
+    fi
+  done
+  log_info "libshout.a TLS symbols present (_shout_tls_new defined in both arm64 and x86_64 slices)"
   log_group
 
   log_group "Building Universal libmp3lame..."

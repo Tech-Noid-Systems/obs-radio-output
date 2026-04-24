@@ -145,6 +145,7 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_RECONNECT_MAX        "reconnect_max"
 #define SETTING_START_WITH_STREAMING "start_with_streaming"
 #define SETTING_PROTOCOL             "protocol"
+#define SETTING_TLS                  "tls_enabled"
 
 extern struct obs_output_info radio_output_info;
 
