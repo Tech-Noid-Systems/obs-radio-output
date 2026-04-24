@@ -35,6 +35,7 @@ Format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - **readme:** Document contributor formatter prerequisites ([a00a6aa](https://github.com/tech-noid-systems/obs-radio-output/commit/a00a6aa33a9b7d37b53d8900f81a907fcc57639a))
 - **scripts:** Note radio-test.lua is a dev aid; native UI is the supported path ([dc4442f](https://github.com/tech-noid-systems/obs-radio-output/commit/dc4442f3c79a2ddd9c777e3610002eb001fae428))
 - Update CHANGELOG.md for 0.1.0-alpha1 ([4727692](https://github.com/tech-noid-systems/obs-radio-output/commit/4727692eb002c2261aea4902b8f0fe55a4827971))
+- Update CHANGELOG.md for 0.1.0-alpha1 ([2a9c61e](https://github.com/tech-noid-systems/obs-radio-output/commit/2a9c61e0e565b68a6921fc5154b4f06f15261c2c))
 
 ### Fixed
 
