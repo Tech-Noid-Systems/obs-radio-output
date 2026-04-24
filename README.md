@@ -13,6 +13,26 @@ Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio se
 - Connection status display
 - macOS (Universal Binary), Windows (x64), and Linux (x86_64) support
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/config-dialog.png" width="600" alt="Tools → Radio Output… configuration dialog showing server, codec, and bitrate settings">
+  <br>
+  <em>Configuration dialog — <strong>Tools → Radio Output…</strong></em>
+</p>
+
+<p align="center">
+  <img src="docs/images/dock-live.png" width="400" alt="Radio Output dock showing Live status with Start and Stop buttons">
+  <br>
+  <em>Radio Output dock — <strong>View → Docks → Radio Output</strong></em>
+</p>
+
+<p align="center">
+  <img src="docs/images/status-states.png" width="400" alt="Connection status progression: Disconnected, Connecting, Live">
+  <br>
+  <em>Color-coded connection states: Disconnected → Connecting… → Live</em>
+</p>
+
 ## Installation
 
 > Installation packages will be available once the plugin reaches a stable release. Until then, build from source (see below).
