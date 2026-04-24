@@ -175,7 +175,11 @@ void RadioOutputDock::pollState()
 
 	const bool running = (state == RADIO_STATE_CONNECTING || state == RADIO_STATE_CONNECTED ||
 			      state == RADIO_STATE_RECONNECTING);
-	start_->setEnabled(!running);
+	/* Error is sticky until the user clicks Stop — disable Start so the
+	 * only action available is acknowledging the failure.  Otherwise a
+	 * second Start click would silently no-op against the retained
+	 * errored handle (see frontend_wire_start_output). */
+	start_->setEnabled(!running && state != RADIO_STATE_ERROR);
 	stop_->setEnabled(running || state == RADIO_STATE_ERROR);
 
 	const bool connected = (state == RADIO_STATE_CONNECTED);
