@@ -28,9 +28,9 @@ Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio se
 </p>
 
 <p align="center">
-  <img src="docs/images/status-states.png" width="800" alt="Dock connection states: Disconnected, Connecting, Live, Error">
+  <img src="docs/images/status-states.png" width="800" alt="Dock connection states: Disconnected, Live, Reconnecting, Error">
   <br>
-  <em>Color-coded connection states: Disconnected, Connecting…, Live, Error</em>
+  <em>Color-coded connection states: Disconnected, Live, Reconnecting…, Error</em>
 </p>
 
 ## Installation
