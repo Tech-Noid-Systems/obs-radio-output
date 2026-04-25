@@ -12,6 +12,7 @@
 !/src
 !.clang-format
 !.gersemirc
+!.gitattributes
 !.gitignore
 !buildspec.json
 !CHANGELOG.md
