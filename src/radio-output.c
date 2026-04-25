@@ -314,8 +314,12 @@ static void *encoder_send_thread(void *data)
 			if (context->reconnect_enabled) {
 				reconnect_start(context);
 			} else {
+				/* OBS_OUTPUT_ERROR (not _DISCONNECTED) so OBS's own
+				 * framework reconnect doesn't kick in and re-call
+				 * radio_output_start behind our back; the user's
+				 * auto-reconnect-disabled choice means stop here. */
 				set_state(context, RADIO_STATE_ERROR);
-				obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+				obs_output_signal_stop(context->output, OBS_OUTPUT_ERROR);
 			}
 			continue;
 		}
