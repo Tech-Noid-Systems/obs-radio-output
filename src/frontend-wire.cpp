@@ -202,8 +202,25 @@ extern "C" obs_data_t *frontend_wire_get_config(void)
 extern "C" bool frontend_wire_start_output(void)
 {
 	if (g_active_output_handle) {
-		obs_log(LOG_INFO, "[frontend-wire] output already running; start request ignored");
-		return true;
+		/* An errored start leaves the handle retained so the dock can
+		 * keep showing Error until the user acknowledges.  A fresh
+		 * start request implicitly acknowledges — release the stale
+		 * errored handle and fall through to create a new one. */
+		struct radio_output *existing = radio_output_get_active();
+		bool errored = false;
+		if (existing) {
+			pthread_mutex_lock(&existing->state_mutex);
+			errored = (existing->state == RADIO_STATE_ERROR);
+			pthread_mutex_unlock(&existing->state_mutex);
+		}
+		if (errored) {
+			obs_log(LOG_INFO, "[frontend-wire] releasing prior errored output before retrying start");
+			obs_output_release(g_active_output_handle);
+			g_active_output_handle = nullptr;
+		} else {
+			obs_log(LOG_INFO, "[frontend-wire] output already running; start request ignored");
+			return true;
+		}
 	}
 	if (!g_config) {
 		obs_log(LOG_ERROR, "[frontend-wire] cannot start output: config not loaded");
@@ -217,9 +234,14 @@ extern "C" bool frontend_wire_start_output(void)
 	}
 
 	if (!obs_output_start(g_active_output_handle)) {
-		obs_log(LOG_ERROR, "[frontend-wire] obs_output_start failed");
-		obs_output_release(g_active_output_handle);
-		g_active_output_handle = nullptr;
+		obs_log(LOG_ERROR, "[frontend-wire] obs_output_start failed; "
+				   "context retained in Error state for dock acknowledgement");
+		/* DO NOT release the handle here.  The context's state is
+		 * RADIO_STATE_ERROR; releasing would destroy the context
+		 * immediately and the dock would poll g_active_output == NULL,
+		 * overwriting Error with Disconnected in the UI.  The user
+		 * clears the error by clicking Stop, which calls
+		 * frontend_wire_stop_output() and releases the handle there. */
 		return false;
 	}
 

@@ -89,7 +89,8 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 static void radio_output_teardown(struct radio_output *context)
 {
 	pthread_mutex_lock(&context->state_mutex);
-	if (context->state == RADIO_STATE_DISCONNECTED) {
+	radio_state_t entry_state = context->state;
+	if (entry_state == RADIO_STATE_DISCONNECTED) {
 		pthread_mutex_unlock(&context->state_mutex);
 		return;
 	}
@@ -137,7 +138,12 @@ static void radio_output_teardown(struct radio_output *context)
 	}
 #endif /* HAVE_LIBSHOUT */
 
-	set_state(context, RADIO_STATE_DISCONNECTED);
+	/* Preserve RADIO_STATE_ERROR so the dock keeps showing red until the
+	 * user acknowledges by clicking Stop, which releases the obs_output_t
+	 * handle and calls destroy — at which point the context is freed and
+	 * the dock polls g_active_output == NULL, rendering Disconnected. */
+	if (entry_state != RADIO_STATE_ERROR)
+		set_state(context, RADIO_STATE_DISCONNECTED);
 	obs_log(LOG_INFO, "Disconnected from %s:%d%s", context->host, context->port, context->mount);
 }
 
@@ -308,8 +314,12 @@ static void *encoder_send_thread(void *data)
 			if (context->reconnect_enabled) {
 				reconnect_start(context);
 			} else {
+				/* OBS_OUTPUT_ERROR (not _DISCONNECTED) so OBS's own
+				 * framework reconnect doesn't kick in and re-call
+				 * radio_output_start behind our back; the user's
+				 * auto-reconnect-disabled choice means stop here. */
 				set_state(context, RADIO_STATE_ERROR);
-				obs_output_signal_stop(context->output, OBS_OUTPUT_DISCONNECTED);
+				obs_output_signal_stop(context->output, OBS_OUTPUT_ERROR);
 			}
 			continue;
 		}
