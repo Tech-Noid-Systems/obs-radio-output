@@ -79,4 +79,11 @@ private: // NOLINT(readability-redundant-access-specifiers)
 	int protocol_ = 0; /* RADIO_PROTOCOL_ICECAST / _SHOUTCAST */
 	QString mount_;
 	bool had_error_ = false; /* suppress repeat -1 emissions during an error run */
+	/* Suppress the very first post-configure() poll failure as a likely
+	 * server-bootstrap race (e.g. Icecast restart: source reconnects in
+	 * ~1-3 s, but /status-json.xsl can take longer to come up).  Without
+	 * this, every reconnect would flash amber "—" for one poll interval
+	 * before settling.  Counts completed polls, not dispatched ones, so
+	 * we don't double-count an in-flight request that hasn't returned. */
+	int polls_completed_ = 0;
 };

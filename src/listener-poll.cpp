@@ -129,6 +129,7 @@ void ListenerPoll::configure(const QString &scheme, const QString &host, int por
 	protocol_ = protocol;
 	mount_ = mount;
 	had_error_ = false;
+	polls_completed_ = 0;
 }
 
 void ListenerPoll::start(int interval_ms)
@@ -174,8 +175,17 @@ void ListenerPoll::pollOnce()
 	const QString captured_mount = mount_;
 	connect(reply, &QNetworkReply::finished, this, [this, reply, captured_protocol, captured_mount] {
 		reply->deleteLater();
+		++polls_completed_;
+		/* Swallow the first post-configure failure silently; the caller
+		 * just transitioned to CONNECTED and the stats endpoint may still
+		 * be bootstrapping (Icecast restart is the prototypical case).
+		 * The 10 s timer will fire a follow-up poll that decides whether
+		 * this is a real error. */
+		const bool suppress_first = (polls_completed_ == 1);
 
 		if (reply->error() != QNetworkReply::NoError) {
+			if (suppress_first)
+				return;
 			if (!had_error_) {
 				obs_log(LOG_WARNING, "listener-poll: request failed: %s",
 					reply->errorString().toUtf8().constData());
@@ -193,6 +203,8 @@ void ListenerPoll::pollOnce()
 			count = parseIcecastListeners(body, captured_mount);
 
 		if (count < 0) {
+			if (suppress_first)
+				return;
 			if (!had_error_) {
 				obs_log(LOG_WARNING, "listener-poll: could not parse listener count for mount '%s'",
 					captured_mount.toUtf8().constData());
