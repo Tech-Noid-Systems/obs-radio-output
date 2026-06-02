@@ -133,6 +133,8 @@ target_sources(
     src/radio-output.h
     src/radio-encoder.h
     src/radio-opus-encoder.c
+    src/ogg-opus-headers.c
+    src/ogg-opus-headers.h
     src/reconnect.c
     src/reconnect.h
     src/metadata.c
