@@ -85,6 +85,27 @@ else()
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_OPUS)
 endif()
 
+# Vorbis encoding via libvorbis + libvorbisenc (codec) over libogg (container).
+# Same Windows optional-until-MSVC-binaries treatment as libshout / libmp3lame /
+# libopus.  The encoder source (src/radio-vorbis-encoder.c) lands in a follow-up
+# PR (§H.2 + §H.3); this configure-time wiring is a no-op in the binary until a
+# source file references the linked symbols.  LibVorbis::LibVorbis already pulls
+# in libvorbisenc, but libogg is listed explicitly to complete the
+# vorbisenc -> vorbis -> ogg static-link order.
+if(WIN32)
+  find_package(LibVorbis QUIET)
+  if(LibVorbis_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibVorbis::LibVorbis LibOgg::LibOgg)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_VORBIS)
+  else()
+    message(WARNING "LibVorbis not found — Vorbis encoding not available on Windows")
+  endif()
+else()
+  find_package(LibVorbis REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibVorbis::LibVorbis LibOgg::LibOgg)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_VORBIS)
+endif()
+
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::obs-frontend-api)
