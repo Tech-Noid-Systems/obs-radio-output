@@ -365,6 +365,14 @@ build() {
   mv /tmp/libvorbis-1.3.7 /tmp/libvorbis-src
   pushd /tmp/libvorbis-src
 
+  # libvorbis 1.3.7's configure bakes the obsolete -force_cpusubtype_ALL flag
+  # into the Darwin CFLAGS.  Xcode 16's ld rejects it ("ld: unknown options:
+  # -force_cpusubtype_ALL") when linking the bundled test/example programs that
+  # `make all` builds, which aborts make before the static archives install.
+  # The library objects themselves compile fine; strip the dead flag so the
+  # whole tree links.
+  /usr/bin/sed -i '' 's/-force_cpusubtype_ALL//g' configure
+
   mkdir build-arm64 && pushd build-arm64
   PKG_CONFIG_LIBDIR=/tmp/libogg-arm64/lib/pkgconfig \
     ../configure --prefix=/tmp/libvorbis-arm64 \
