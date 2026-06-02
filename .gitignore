@@ -11,6 +11,7 @@
 !/docs
 !/scripts
 !/src
+!/tests
 !.clang-format
 !.gersemirc
 !.gitattributes
