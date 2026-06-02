@@ -24,6 +24,11 @@ function(radio_add_test name)
     # ever run on the build/CI machine and never ship, so pin them to the host
     # architecture.
     set_target_properties(${name} PROPERTIES OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}")
+    # libobs is consumed as a framework on macOS and its headers use
+    # double-quoted includes; suppress the framework-header diagnostics that the
+    # plugin target also suppresses, so a test that pulls obs headers builds
+    # under -Werror.
+    target_compile_options(${name} PRIVATE -Wno-quoted-include-in-framework-header -Wno-comma)
   endif()
   # PRE_TEST discovery defers test enumeration to `ctest` run time instead of
   # running the binary as a post-build step — more robust under the Xcode
@@ -33,3 +38,46 @@ function(radio_add_test name)
 endfunction()
 
 radio_add_test(test_smoke test_smoke.cpp)
+
+# Metadata song-truncation test (#74).  Compiles src/metadata.c directly into
+# the test target and stubs its externals (obs_log, the libshout metadata API,
+# radio_output_get_active) in test_metadata.cpp.  metadata.c includes
+# radio-output.h (→ obs-module.h) and, under HAVE_LIBSHOUT, shout.h, so the
+# target needs both include trees — pulled headers-only from the imported
+# targets (no link; the called functions are stubbed).
+radio_add_test(test_metadata test_metadata.cpp ${CMAKE_SOURCE_DIR}/src/metadata.c)
+target_compile_definitions(test_metadata PRIVATE HAVE_LIBSHOUT)
+target_include_directories(
+  test_metadata
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    $<TARGET_PROPERTY:OBS::libobs,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:LibShout::LibShout,INTERFACE_INCLUDE_DIRECTORIES>
+)
+find_package(Threads REQUIRED)
+target_link_libraries(test_metadata PRIVATE Threads::Threads)
+
+# OpusHead / OpusTags byte-layout test (#75).  Compiles only the pure
+# serializer TU — no libopus / libogg / OBS — so no extra include trees or
+# stubs are needed.
+radio_add_test(test_opus_headers test_opus_headers.cpp ${CMAKE_SOURCE_DIR}/src/ogg-opus-headers.c)
+target_include_directories(test_opus_headers PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Opus PCM accumulator test (#76).  Compiles radio-opus-encoder.c (+ the pure
+# header TU) into the test, stubs its OBS externals (obs_log, bmem) in the test
+# source, and links REAL libopus + libogg (deterministic output) to drive the
+# encoder and parse the emitted Ogg pages.  obs headers come in headers-only via
+# the imported target; HAVE_OPUS lights the real encoder path (HAVE_LIBSHOUT
+# stays off — no shout dependency needed for encoding).
+radio_add_test(
+  test_opus_accumulator
+  test_opus_accumulator.cpp
+  ${CMAKE_SOURCE_DIR}/src/radio-opus-encoder.c
+  ${CMAKE_SOURCE_DIR}/src/ogg-opus-headers.c
+)
+target_compile_definitions(test_opus_accumulator PRIVATE HAVE_OPUS)
+target_include_directories(
+  test_opus_accumulator
+  PRIVATE ${CMAKE_SOURCE_DIR}/src $<TARGET_PROPERTY:OBS::libobs,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_link_libraries(test_opus_accumulator PRIVATE LibOpus::LibOpus LibOgg::LibOgg)
