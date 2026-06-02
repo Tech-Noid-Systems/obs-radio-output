@@ -77,6 +77,7 @@ QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QCo
 	codec = new QComboBox(group);
 	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Opus"), RADIO_CODEC_OPUS);
 	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.MP3"), RADIO_CODEC_MP3);
+	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Vorbis"), RADIO_CODEC_VORBIS);
 	form->addRow(obs_module_text("RadioOutput.Audio.Codec"), codec);
 
 	bitrate = new QComboBox(group);

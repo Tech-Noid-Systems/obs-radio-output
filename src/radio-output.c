@@ -537,6 +537,9 @@ static bool radio_output_start(void *data)
 	case RADIO_CODEC_OPUS:
 		context->encoder = &radio_encoder_opus;
 		break;
+	case RADIO_CODEC_VORBIS:
+		context->encoder = &radio_encoder_vorbis;
+		break;
 	case RADIO_CODEC_MP3:
 	default:
 		context->encoder = &radio_encoder_mp3;
@@ -736,6 +739,7 @@ static obs_properties_t *radio_output_get_properties(void *data)
 							OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(codec, obs_module_text("RadioOutput.Audio.Codec.MP3"), RADIO_CODEC_MP3);
 	obs_property_list_add_int(codec, obs_module_text("RadioOutput.Audio.Codec.Opus"), RADIO_CODEC_OPUS);
+	obs_property_list_add_int(codec, obs_module_text("RadioOutput.Audio.Codec.Vorbis"), RADIO_CODEC_VORBIS);
 
 	obs_property_t *bitrate = obs_properties_add_list(audio, SETTING_BITRATE,
 							  obs_module_text("RadioOutput.Audio.Bitrate"),
