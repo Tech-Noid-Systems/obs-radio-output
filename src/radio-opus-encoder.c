@@ -33,6 +33,7 @@
 
 #include "radio-encoder.h"
 #include "radio-output.h"
+#include "ogg-opus-headers.h"
 
 #include <plugin-support.h>
 #include <util/base.h>
@@ -170,20 +171,10 @@ static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_hea
 	*out_headers = NULL;
 	*out_bytes = 0;
 
-	/* ---- OpusHead (RFC 7845 §5.1, 19 bytes for channel mapping family 0) ---- */
-	uint8_t head[19];
-	memcpy(head, "OpusHead", 8);
-	head[8] = 1;                     /* version */
-	head[9] = (uint8_t)st->channels; /* output channel count */
-	head[10] = (uint8_t)(st->preskip & 0xFF);
-	head[11] = (uint8_t)((st->preskip >> 8) & 0xFF);
-	head[12] = (uint8_t)(st->sample_rate & 0xFF);
-	head[13] = (uint8_t)((st->sample_rate >> 8) & 0xFF);
-	head[14] = (uint8_t)((st->sample_rate >> 16) & 0xFF);
-	head[15] = (uint8_t)((st->sample_rate >> 24) & 0xFF);
-	head[16] = 0; /* output gain low (0 = unity) */
-	head[17] = 0; /* output gain high */
-	head[18] = 0; /* channel mapping family */
+	/* ---- OpusHead (RFC 7845 §5.1, 19 bytes for channel mapping family 0) ----
+	 * Byte layout lives in ogg-opus-headers.c so it can be unit-tested. */
+	uint8_t head[OPUS_HEAD_SIZE];
+	opus_format_head(head, (uint8_t)st->channels, (uint16_t)st->preskip, st->sample_rate);
 
 	ogg_packet op_head = {0};
 	op_head.packet = head;
@@ -197,22 +188,13 @@ static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_hea
 		return false;
 	}
 
-	/* ---- OpusTags (RFC 7845 §5.2) ---- */
-	const char *vendor = "obs-radio-output";
-	const size_t vendor_len = strlen(vendor);
-	const size_t tags_len = 8 + 4 + vendor_len + 4;
-	uint8_t *tags = bmalloc(tags_len);
-	memcpy(tags, "OpusTags", 8);
-	const uint32_t vlen32 = (uint32_t)vendor_len;
-	tags[8] = (uint8_t)(vlen32 & 0xFF);
-	tags[9] = (uint8_t)((vlen32 >> 8) & 0xFF);
-	tags[10] = (uint8_t)((vlen32 >> 16) & 0xFF);
-	tags[11] = (uint8_t)((vlen32 >> 24) & 0xFF);
-	memcpy(tags + 12, vendor, vendor_len);
-	tags[12 + vendor_len + 0] = 0;
-	tags[12 + vendor_len + 1] = 0;
-	tags[12 + vendor_len + 2] = 0;
-	tags[12 + vendor_len + 3] = 0;
+	/* ---- OpusTags (RFC 7845 §5.2) ----
+	 * Vendor "obs-radio-output" (16 bytes) → a 32-byte packet; the 64-byte
+	 * stack buffer is ample.  libogg copies the packet bytes in
+	 * ogg_stream_packetin, so the buffer needn't outlive this call.  Byte
+	 * layout lives in ogg-opus-headers.c. */
+	uint8_t tags[64];
+	const size_t tags_len = opus_format_tags(tags, sizeof(tags), "obs-radio-output");
 
 	ogg_packet op_tags = {0};
 	op_tags.packet = tags;
@@ -223,7 +205,6 @@ static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_hea
 	op_tags.packetno = st->packetno++;
 	if (ogg_stream_packetin(&st->os, &op_tags) != 0) {
 		obs_log(LOG_ERROR, "ogg_stream_packetin(OpusTags) failed");
-		bfree(tags);
 		return false;
 	}
 
@@ -235,8 +216,6 @@ static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_hea
 	ogg_page page;
 	while (ogg_stream_flush(&st->os, &page))
 		append_page(&pages, &pages_len, &pages_cap, &page);
-
-	bfree(tags);
 
 	*out_headers = pages;
 	*out_bytes = pages_len;

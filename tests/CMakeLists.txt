@@ -56,3 +56,9 @@ target_include_directories(
 )
 find_package(Threads REQUIRED)
 target_link_libraries(test_metadata PRIVATE Threads::Threads)
+
+# OpusHead / OpusTags byte-layout test (#75).  Compiles only the pure
+# serializer TU — no libopus / libogg / OBS — so no extra include trees or
+# stubs are needed.
+radio_add_test(test_opus_headers test_opus_headers.cpp ${CMAKE_SOURCE_DIR}/src/ogg-opus-headers.c)
+target_include_directories(test_opus_headers PRIVATE ${CMAKE_SOURCE_DIR}/src)
