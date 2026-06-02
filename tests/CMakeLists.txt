@@ -62,3 +62,22 @@ target_link_libraries(test_metadata PRIVATE Threads::Threads)
 # stubs are needed.
 radio_add_test(test_opus_headers test_opus_headers.cpp ${CMAKE_SOURCE_DIR}/src/ogg-opus-headers.c)
 target_include_directories(test_opus_headers PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Opus PCM accumulator test (#76).  Compiles radio-opus-encoder.c (+ the pure
+# header TU) into the test, stubs its OBS externals (obs_log, bmem) in the test
+# source, and links REAL libopus + libogg (deterministic output) to drive the
+# encoder and parse the emitted Ogg pages.  obs headers come in headers-only via
+# the imported target; HAVE_OPUS lights the real encoder path (HAVE_LIBSHOUT
+# stays off — no shout dependency needed for encoding).
+radio_add_test(
+  test_opus_accumulator
+  test_opus_accumulator.cpp
+  ${CMAKE_SOURCE_DIR}/src/radio-opus-encoder.c
+  ${CMAKE_SOURCE_DIR}/src/ogg-opus-headers.c
+)
+target_compile_definitions(test_opus_accumulator PRIVATE HAVE_OPUS)
+target_include_directories(
+  test_opus_accumulator
+  PRIVATE ${CMAKE_SOURCE_DIR}/src $<TARGET_PROPERTY:OBS::libobs,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_link_libraries(test_opus_accumulator PRIVATE LibOpus::LibOpus LibOgg::LibOgg)
