@@ -109,6 +109,17 @@ build() {
   cmake_args+=(-DLibVorbis_ROOT=/tmp/libvorbis-universal)
   cmake_args+=(-DOPENSSL_ROOT_DIR=/tmp/openssl-universal)
 
+  # The macos-ci preset sets ENABLE_TESTING=ON, which calls find_package(Catch2)
+  # at configure time.  Catch2 is installed via Homebrew on CI but its prefix is
+  # not part of the obs-deps CMAKE_PREFIX_PATH, so point find_package at it
+  # explicitly.  `brew --prefix` prints a path even when the formula is not
+  # installed, so confirm the CMake package dir actually exists before adding
+  # the hint.
+  local _catch2_prefix
+  if _catch2_prefix="$(brew --prefix catch2 2>/dev/null)" && [[ -d ${_catch2_prefix}/lib/cmake/Catch2 ]]; then
+    cmake_args+=(-DCatch2_ROOT="${_catch2_prefix}")
+  fi
+
   typeset -gx NSUnbufferedIO=YES
 
   typeset -gx CODESIGN_IDENT="${CODESIGN_IDENT:--}"

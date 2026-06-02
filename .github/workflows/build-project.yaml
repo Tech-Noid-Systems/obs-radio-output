@@ -151,6 +151,11 @@ jobs:
           notarizationUser: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
           notarizationPassword: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
 
+      - name: Install Catch2 🧪
+        run: |
+          : Install Catch2 🧪
+          brew install catch2
+
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
         with:
@@ -158,6 +163,12 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           codesign: ${{ fromJSON(needs.check-event.outputs.codesign) }}
           codesignIdent: ${{ steps.codesign.outputs.codesignIdent }}
+
+      - name: Run Unit Tests 🧪
+        run: |
+          : Run Unit Tests 🧪
+          cmake --build build_macos --config ${{ needs.check-event.outputs.config }} --target radio-tests
+          ctest --test-dir build_macos --build-config ${{ needs.check-event.outputs.config }} --output-on-failure
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
@@ -250,6 +261,13 @@ jobs:
         with:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
+
+      - name: Run Unit Tests 🧪
+        shell: bash
+        run: |
+          : Run Unit Tests 🧪
+          cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target radio-tests
+          ctest --test-dir build_x86_64 --build-config ${{ needs.check-event.outputs.config }} --output-on-failure
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin

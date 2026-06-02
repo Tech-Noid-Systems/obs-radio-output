@@ -8,6 +8,7 @@ set(PLUGIN_LICENSE "GPL-2.0-or-later")
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
+option(ENABLE_TESTING "Build Catch2 unit tests" OFF)
 
 include(compilerconfig)
 include(defaults)
@@ -147,3 +148,11 @@ target_sources(
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+
+# Unit tests are opt-in (ENABLE_TESTING, default OFF) so the production plugin
+# build is bit-for-bit unchanged.  CI turns it on via the macos-ci /
+# ubuntu-ci-x86_64 presets; see tests/CMakeLists.txt.
+if(ENABLE_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
