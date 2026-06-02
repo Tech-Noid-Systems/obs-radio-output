@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "send-buf.h"
+
 #ifdef HAVE_LIBSHOUT
 #include <shout/shout.h>
 #endif
@@ -90,12 +92,12 @@ struct radio_output {
 	 * Shared sender thread.  The encoder writes compressed bytes into
 	 * send_buf from the audio thread; this thread drains them to libshout
 	 * with shout_sync() pacing.  Originally MP3-only (hence the naming in
-	 * older logs); now generic across MP3 and Opus.
+	 * older logs); now generic across MP3 and Opus.  The ring buffer itself
+	 * lives in send-buf.{c,h}; send_mutex serializes producer/consumer access
+	 * to it (see send_buf_push and encoder_send_thread).
 	 */
 #define SEND_BUF_CAPACITY (256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
-	uint8_t *send_buf;
-	size_t send_wpos; /* monotonically increasing write position */
-	size_t send_rpos; /* monotonically increasing read position */
+	struct radio_send_buf send_buf;
 	pthread_mutex_t send_mutex;
 	pthread_cond_t send_cond;
 	pthread_t send_thread;
