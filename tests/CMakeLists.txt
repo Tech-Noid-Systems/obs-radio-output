@@ -81,3 +81,8 @@ target_include_directories(
   PRIVATE ${CMAKE_SOURCE_DIR}/src $<TARGET_PROPERTY:OBS::libobs,INTERFACE_INCLUDE_DIRECTORIES>
 )
 target_link_libraries(test_opus_accumulator PRIVATE LibOpus::LibOpus LibOgg::LibOgg)
+
+# send-buf ring-buffer test (#78).  send-buf.c is pure (malloc/free, no
+# OBS/libshout), so it links straight in with no stubs or extra includes.
+radio_add_test(test_ring_buffer test_ring_buffer.cpp ${CMAKE_SOURCE_DIR}/src/send-buf.c)
+target_include_directories(test_ring_buffer PRIVATE ${CMAKE_SOURCE_DIR}/src)
