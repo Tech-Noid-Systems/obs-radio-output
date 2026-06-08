@@ -21,6 +21,10 @@ add_library(${CMAKE_PROJECT_NAME} MODULE)
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
+# Vendored obs-websocket plugin API (single header, runtime proc-handler based —
+# no link dependency on obs-websocket; registration is a no-op when it's absent).
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/deps/obs-websocket-api")
+
 if(WIN32)
   # MSVC cannot link MinGW-built libraries; make libshout optional on Windows
   # until MSVC-compatible binaries are available.
@@ -129,6 +133,8 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.c
+    src/obs-ws-vendor.c
+    src/obs-ws-vendor.h
     src/radio-output.c
     src/radio-output.h
     src/radio-encoder.h

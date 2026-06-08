@@ -8,6 +8,7 @@
 !/build-aux
 !/cmake
 !/data
+!/deps
 !/docs
 !/scripts
 !/src
