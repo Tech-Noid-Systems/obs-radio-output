@@ -35,10 +35,18 @@ extern "C" {
  * present once all modules have finished loading.  If obs-websocket is not
  * installed, registration is a no-op and the plugin loads normally.
  *
- * This first increment exposes read-only verbs only:
- *   - radio.status : current connection state + the active/configured target.
- * Mutating verbs (radio.start/stop, radio.pushMetadata, radio.applyConfig) land
- * in a follow-up PR with the required UI-thread marshaling.
+ * Verbs:
+ *   - radio.status       : current connection state + the active/configured target (read-only)
+ *   - radio.start        : create + start the radio output
+ *   - radio.stop         : stop the running radio output (idempotent)
+ *   - radio.pushMetadata : set the "now playing" title  {title: string}
+ *   - radio.applyConfig  : merge SETTING_* keys into the saved config (next-start)
+ *
+ * radio.status and radio.pushMetadata answer inline; start/stop/applyConfig touch
+ * UI-thread-owned state and are marshaled onto the OBS UI thread.
+ *
+ * Still deferred: radio.getListeners — the count lives in a Qt-main-thread poller
+ * with no global cache; exposing it needs a cached value or a synchronous client.
  */
 
 /* Call from obs_module_load().  Hooks the frontend event that performs the
