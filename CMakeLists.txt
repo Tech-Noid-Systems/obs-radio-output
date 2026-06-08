@@ -137,6 +137,8 @@ target_sources(
     src/obs-ws-vendor.h
     src/radio-output.c
     src/radio-output.h
+    src/send-buf.c
+    src/send-buf.h
     src/radio-encoder.h
     src/radio-opus-encoder.c
     src/ogg-opus-headers.c
