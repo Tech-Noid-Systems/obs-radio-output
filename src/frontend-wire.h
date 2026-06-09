@@ -67,6 +67,18 @@ bool frontend_wire_start_output(void);
  */
 void frontend_wire_stop_output(void);
 
+/*
+ * Merge the recognized SETTING_* keys present in `patch` into the module
+ * config and persist it to disk.  Only keys explicitly set in `patch` are
+ * applied; everything else is left untouched.  Takes effect on the NEXT
+ * start (a running output keeps the settings it began with), matching the
+ * config dialog's behavior.
+ *
+ * MUST be called on the OBS UI thread (it mutates the UI-thread-owned config
+ * and writes to disk).  Returns false if config isn't loaded or patch is null.
+ */
+bool frontend_wire_apply_config(obs_data_t *patch);
+
 #ifdef __cplusplus
 }
 #endif

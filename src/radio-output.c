@@ -104,7 +104,7 @@ static void radio_output_teardown(struct radio_output *context)
 #ifdef HAVE_LIBSHOUT
 	/* Stop the send thread before flushing / closing shout so the thread
 	 * can't race with our flush shout_send. */
-	if (context->send_buf) {
+	if (context->send_buf.data) {
 		context->send_running = false;
 		pthread_mutex_lock(&context->send_mutex);
 		pthread_cond_signal(&context->send_cond);
@@ -112,8 +112,7 @@ static void radio_output_teardown(struct radio_output *context)
 		pthread_join(context->send_thread, NULL);
 		pthread_mutex_destroy(&context->send_mutex);
 		pthread_cond_destroy(&context->send_cond);
-		bfree(context->send_buf);
-		context->send_buf = NULL;
+		radio_send_buf_free(&context->send_buf);
 		obs_log(LOG_INFO, "Encoder send thread stopped");
 	}
 
@@ -278,25 +277,14 @@ static void *encoder_send_thread(void *data)
 
 	while (context->send_running) {
 		pthread_mutex_lock(&context->send_mutex);
-		while (context->send_wpos == context->send_rpos && context->send_running)
+		while (radio_send_buf_used(&context->send_buf) == 0 && context->send_running)
 			pthread_cond_wait(&context->send_cond, &context->send_mutex);
 		if (!context->send_running) {
 			pthread_mutex_unlock(&context->send_mutex);
 			break;
 		}
 
-		size_t avail = context->send_wpos - context->send_rpos;
-		size_t to_read = avail < sizeof(scratch) ? avail : sizeof(scratch);
-		size_t rpos = context->send_rpos % SEND_BUF_CAPACITY;
-		size_t tail = SEND_BUF_CAPACITY - rpos;
-
-		if (tail >= to_read) {
-			memcpy(scratch, context->send_buf + rpos, to_read);
-		} else {
-			memcpy(scratch, context->send_buf + rpos, tail);
-			memcpy(scratch + tail, context->send_buf, to_read - tail);
-		}
-		context->send_rpos += to_read;
+		size_t to_read = radio_send_buf_read(&context->send_buf, scratch, sizeof(scratch));
 		pthread_mutex_unlock(&context->send_mutex);
 
 		if (!context->shout)
@@ -335,25 +323,13 @@ static void *encoder_send_thread(void *data)
  */
 static void send_buf_push(struct radio_output *context, const uint8_t *bytes, size_t len)
 {
-	if (!context->send_buf || len == 0)
+	if (!context->send_buf.data || len == 0)
 		return;
 
 	pthread_mutex_lock(&context->send_mutex);
-	size_t used = context->send_wpos - context->send_rpos;
-	if (used + len > SEND_BUF_CAPACITY) {
-		size_t drop = used + len - SEND_BUF_CAPACITY;
-		context->send_rpos += drop;
-		obs_log(LOG_WARNING, "send buffer full, dropped %zu bytes", drop);
-	}
-	size_t wpos = context->send_wpos % SEND_BUF_CAPACITY;
-	size_t tail = SEND_BUF_CAPACITY - wpos;
-	if (tail >= len) {
-		memcpy(context->send_buf + wpos, bytes, len);
-	} else {
-		memcpy(context->send_buf + wpos, bytes, tail);
-		memcpy(context->send_buf, bytes + tail, len - tail);
-	}
-	context->send_wpos += len;
+	size_t dropped = radio_send_buf_push(&context->send_buf, bytes, len);
+	if (dropped)
+		obs_log(LOG_WARNING, "send buffer full, dropped %zu bytes", dropped);
 	pthread_cond_signal(&context->send_cond);
 	pthread_mutex_unlock(&context->send_mutex);
 }
@@ -617,26 +593,26 @@ static bool radio_output_start(void *data)
 	}
 
 	/* --- Start shared send thread (all codecs) --- */
-	uint8_t *sbuf = bmalloc(SEND_BUF_CAPACITY);
-	if (!sbuf) {
-		obs_log(LOG_ERROR, "Failed to allocate send buffer");
-		bfree(startup_bytes);
-		goto start_fail_after_capture;
-	}
-	/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio. */
-	context->send_wpos = 0;
-	context->send_rpos = 0;
+	/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio;
+	 * radio_send_buf_init sets the data pointer last, so raw_audio's
+	 * send_buf.data "ready" gate only opens once the buffer is usable. */
 	context->send_running = true;
 	pthread_mutex_init(&context->send_mutex, NULL);
 	pthread_cond_init(&context->send_cond, NULL);
-	context->send_buf = sbuf; /* raw_audio uses this as its "ready" gate */
+	if (!radio_send_buf_init(&context->send_buf, SEND_BUF_CAPACITY)) {
+		obs_log(LOG_ERROR, "Failed to allocate send buffer");
+		context->send_running = false;
+		pthread_mutex_destroy(&context->send_mutex);
+		pthread_cond_destroy(&context->send_cond);
+		bfree(startup_bytes);
+		goto start_fail_after_capture;
+	}
 	if (pthread_create(&context->send_thread, NULL, encoder_send_thread, context) != 0) {
 		obs_log(LOG_ERROR, "Failed to create encoder send thread");
 		context->send_running = false;
-		context->send_buf = NULL;
+		radio_send_buf_free(&context->send_buf);
 		pthread_mutex_destroy(&context->send_mutex);
 		pthread_cond_destroy(&context->send_cond);
-		bfree(sbuf);
 		bfree(startup_bytes);
 		goto start_fail_after_capture;
 	}
@@ -680,10 +656,10 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 	if (!frames || !frames->frames)
 		return;
 
-	/* send_buf doubles as the "ready to write" gate — set by start() only
-	 * after mutex/cond/send thread are all live.  encoder is set one step
-	 * earlier, so both null-checks matter. */
-	if (!context->encoder || !context->send_buf)
+	/* send_buf.data doubles as the "ready to write" gate — set by start()
+	 * (radio_send_buf_init) only after mutex/cond/send thread are all live.
+	 * encoder is set one step earlier, so both null-checks matter. */
+	if (!context->encoder || !context->send_buf.data)
 		return;
 
 	const float *left = (const float *)frames->data[0];

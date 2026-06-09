@@ -24,7 +24,9 @@ runs:
       uses: ./.github/actions/check-changes
       id: checks
       with:
-        checkGlob: "'*.c' '*.h' '*.cpp' '*.hpp' '*.m' '*.mm'"
+        # ':!deps' excludes vendored third-party sources (e.g. deps/obs-websocket-api)
+        # from the style check — we keep upstream formatting rather than restyle it.
+        checkGlob: "'*.c' '*.h' '*.cpp' '*.hpp' '*.m' '*.mm' ':!deps'"
         diffFilter: 'ACM'
 
     - name: Install Dependencies 🛍️

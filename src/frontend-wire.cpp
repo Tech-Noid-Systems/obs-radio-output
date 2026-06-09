@@ -248,6 +248,32 @@ extern "C" bool frontend_wire_start_output(void)
 	return true;
 }
 
+extern "C" bool frontend_wire_apply_config(obs_data_t *patch)
+{
+	if (!g_config || !patch)
+		return false;
+
+	/* Copy only the keys the caller explicitly set, preserving type.  Same
+	 * TU as the anonymous-namespace helpers, so g_config / save_config_to_disk
+	 * are reachable here just as they are in frontend_wire_start_output. */
+	for (const char *key : {SETTING_HOST, SETTING_MOUNT, SETTING_PASSWORD}) {
+		if (obs_data_has_user_value(patch, key))
+			obs_data_set_string(g_config, key, obs_data_get_string(patch, key));
+	}
+	for (const char *key : {SETTING_PORT, SETTING_CODEC, SETTING_BITRATE, SETTING_PROTOCOL, SETTING_RECONNECT_DELAY,
+				SETTING_RECONNECT_MAX}) {
+		if (obs_data_has_user_value(patch, key))
+			obs_data_set_int(g_config, key, obs_data_get_int(patch, key));
+	}
+	for (const char *key : {SETTING_TLS, SETTING_RECONNECT, SETTING_START_WITH_STREAMING}) {
+		if (obs_data_has_user_value(patch, key))
+			obs_data_set_bool(g_config, key, obs_data_get_bool(patch, key));
+	}
+
+	save_config_to_disk();
+	return true;
+}
+
 extern "C" void frontend_wire_stop_output(void)
 {
 	/* Stop whichever radio output is currently live, regardless of who
