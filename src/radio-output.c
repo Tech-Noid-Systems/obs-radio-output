@@ -48,6 +48,7 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->bitrate = (int)obs_data_get_int(settings, SETTING_BITRATE);
 	context->protocol = (int)obs_data_get_int(settings, SETTING_PROTOCOL);
 	context->use_tls = obs_data_get_bool(settings, SETTING_TLS);
+	context->stream_samplerate = (uint32_t)obs_data_get_int(settings, SETTING_STREAM_SAMPLERATE);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	/* Setting stores seconds; convert to milliseconds for internal use. */
@@ -230,7 +231,12 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	 * audiorate = 0 and shout_sync can sleep indefinitely.  Also populates
 	 * the audio_info stats on the Icecast admin page. */
 	char ai_bitrate[16], ai_samplerate[16];
-	uint32_t sample_rate = context->sample_rate ? context->sample_rate : 48000;
+	/* Report the OUTPUT rate the encoder produces (out_samplerate), falling
+	 * back to the input rate before the encoder has initialized.  This keeps
+	 * the Icecast admin page honest when the user selects a stream samplerate
+	 * that differs from the OBS input rate (MP3 resampling). */
+	uint32_t sample_rate = context->out_samplerate ? context->out_samplerate
+						       : (context->sample_rate ? context->sample_rate : 48000);
 	snprintf(ai_bitrate, sizeof(ai_bitrate), "%d", context->bitrate);
 	snprintf(ai_samplerate, sizeof(ai_samplerate), "%u", sample_rate);
 	shout_set_audio_info(shout, SHOUT_AI_BITRATE, ai_bitrate);
@@ -365,9 +371,13 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 		obs_log(LOG_ERROR, "lame_init() failed");
 		return false;
 	}
+	/* libmp3lame resamples internally when in != out.  out=0 tells LAME to
+	 * match the input rate (the historical default); a user-selected target
+	 * routes through LAME's resampler. */
+	const int out_rate = context->stream_samplerate ? (int)context->stream_samplerate : 0;
 	lame_set_in_samplerate(context->lame_gfp, (int)sample_rate);
 	lame_set_num_channels(context->lame_gfp, channels);
-	lame_set_out_samplerate(context->lame_gfp, 0);
+	lame_set_out_samplerate(context->lame_gfp, out_rate);
 	lame_set_brate(context->lame_gfp, context->bitrate);
 	lame_set_quality(context->lame_gfp, 2);
 	if (lame_init_params(context->lame_gfp) < 0) {
@@ -376,7 +386,14 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 		context->lame_gfp = NULL;
 		return false;
 	}
-	obs_log(LOG_INFO, "MP3 encoder: %u Hz, %d ch, %d kbps", sample_rate, channels, context->bitrate);
+	/* lame_get_out_samplerate() reflects LAME's final choice (it snaps to the
+	 * nearest valid MPEG rate), so report that — not the requested value. */
+	context->out_samplerate = (uint32_t)lame_get_out_samplerate(context->lame_gfp);
+	if (context->out_samplerate != sample_rate)
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %d ch, %d kbps", sample_rate,
+			context->out_samplerate, channels, context->bitrate);
+	else
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %d ch, %d kbps", sample_rate, channels, context->bitrate);
 	return true;
 }
 

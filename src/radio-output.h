@@ -63,10 +63,22 @@ struct radio_output {
 	void *encoder_priv;
 
 	/* Ambient samplerate at stream start (Hz).  Set in radio_output_start
-	 * from obs_get_audio_info; used by shout_apply_settings for
-	 * SHOUT_AI_SAMPLERATE. */
+	 * from obs_get_audio_info; this is the INPUT rate the raw_audio callback
+	 * delivers. */
 	uint32_t sample_rate;
 	int channels; /* 1 or 2 */
+
+	/* User-selected target STREAM samplerate (Hz), from SETTING_STREAM_SAMPLERATE.
+	 * 0 = "match OBS" (use sample_rate).  Only MP3 can honor a value different
+	 * from the input rate (libmp3lame has a built-in resampler); Opus is always
+	 * 48 kHz and Vorbis has no resampler, so both warn-and-ignore a mismatch. */
+	uint32_t stream_samplerate;
+
+	/* Effective OUTPUT samplerate (Hz) the encoder actually produces.  Set by
+	 * each encoder's init(): MP3 = resampled target, Opus = 48000, Vorbis =
+	 * input rate.  Reported to Icecast via SHOUT_AI_SAMPLERATE so the admin
+	 * page matches what listeners receive. */
+	uint32_t out_samplerate;
 
 	// Runtime state
 	radio_state_t state;
@@ -156,6 +168,7 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_START_WITH_STREAMING "start_with_streaming"
 #define SETTING_PROTOCOL             "protocol"
 #define SETTING_TLS                  "tls_enabled"
+#define SETTING_STREAM_SAMPLERATE    "stream_samplerate"
 
 extern struct obs_output_info radio_output_info;
 

@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QComboBox>
 #include <QDialog>
 #include <QFormLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QSpinBox>
 
@@ -64,6 +65,14 @@ private: // NOLINT(readability-redundant-access-specifiers) — keeps data membe
 
 	QComboBox *codec_;
 	QComboBox *bitrate_;
+
+	/* Audio group: the codec combo drives the Opus-only samplerate note
+	 * (Opus always streams at 48 kHz; the selector can't change that). */
+	QComboBox *samplerate_;
+	QLabel *samplerate_note_;
+	QFormLayout *audio_form_;
+	int samplerate_note_row_index_;
+
 	QCheckBox *reconnect_enabled_;
 	QSpinBox *reconnect_delay_;
 	QSpinBox *reconnect_max_;
@@ -71,4 +80,5 @@ private: // NOLINT(readability-redundant-access-specifiers) — keeps data membe
 
 private slots: // NOLINT(readability-redundant-access-specifiers)
 	void onProtocolChanged(int index);
+	void onCodecChanged(int index);
 };

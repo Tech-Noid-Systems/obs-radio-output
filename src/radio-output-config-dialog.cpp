@@ -33,6 +33,11 @@ namespace {
 /* Common internet-radio bitrates populated into the combo. */
 constexpr int kBitrates[] = {32, 48, 64, 96, 128, 192, 256, 320};
 
+/* Selectable stream output samplerates (Hz).  "Match OBS" (data 0) is prepended
+ * separately.  Only MP3 resamples to these; Opus is fixed at 48 kHz and Vorbis
+ * encodes at the OBS input rate (see the per-codec handling in the encoders). */
+constexpr int kSamplerates[] = {22050, 32000, 44100, 48000};
+
 QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol, QLineEdit *&host, QSpinBox *&port,
 			  QLineEdit *&mount, QLineEdit *&password, QCheckBox *&tls_enabled, QFormLayout *&form_out,
 			  int &mount_row_index_out, int &tls_row_index_out)
@@ -69,7 +74,9 @@ QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol,
 	return group;
 }
 
-QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QComboBox *&bitrate)
+QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QComboBox *&bitrate,
+			 QComboBox *&samplerate, QLabel *&samplerate_note, QFormLayout *&form_out,
+			 int &samplerate_note_row_index_out)
 {
 	auto *group = new QGroupBox(obs_module_text("RadioOutput.Audio.Group"), parent);
 	auto *form = new QFormLayout(group);
@@ -86,6 +93,22 @@ QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QCo
 	}
 	form->addRow(obs_module_text("RadioOutput.Audio.Bitrate"), bitrate);
 
+	samplerate = new QComboBox(group);
+	samplerate->addItem(obs_module_text("RadioOutput.Audio.Samplerate.MatchOBS"), 0);
+	for (const int sr : kSamplerates) {
+		samplerate->addItem(QString("%1 Hz").arg(sr), sr);
+	}
+	form->addRow(obs_module_text("RadioOutput.Audio.Samplerate"), samplerate);
+
+	/* Opus-only advisory: shown when Codec = Opus, hidden otherwise (toggled
+	 * by onCodecChanged).  Opus is intrinsically 48 kHz, so the selector above
+	 * has no effect for it. */
+	samplerate_note = new QLabel(obs_module_text("RadioOutput.Audio.Samplerate.OpusNote"), group);
+	samplerate_note->setWordWrap(true);
+	samplerate_note_row_index_out = form->rowCount();
+	form->addRow(QString(), samplerate_note);
+
+	form_out = form;
 	return group;
 }
 
@@ -142,7 +165,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	auto *layout = new QVBoxLayout(this);
 	layout->addWidget(buildServerGroup(this, protocol_, host_, port_, mount_, password_, tls_enabled_, server_form_,
 					   mount_row_index_, tls_row_index_));
-	layout->addWidget(buildAudioGroup(this, codec_, bitrate_));
+	layout->addWidget(buildAudioGroup(this, codec_, bitrate_, samplerate_, samplerate_note_, audio_form_,
+					  samplerate_note_row_index_));
 	layout->addWidget(buildReconnectGroup(this, reconnect_enabled_, reconnect_delay_, reconnect_max_));
 	layout->addWidget(buildIntegrationGroup(this, start_with_streaming_));
 
@@ -152,6 +176,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 	connect(protocol_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&RadioOutputConfigDialog::onProtocolChanged);
+	connect(codec_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&RadioOutputConfigDialog::onCodecChanged);
 
 	/* Populate widgets from the current settings. */
 	selectByData(protocol_, (int)obs_data_get_int(settings_, SETTING_PROTOCOL));
@@ -162,6 +188,7 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	tls_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_TLS));
 	selectByData(codec_, (int)obs_data_get_int(settings_, SETTING_CODEC));
 	selectByData(bitrate_, (int)obs_data_get_int(settings_, SETTING_BITRATE));
+	selectByData(samplerate_, (int)obs_data_get_int(settings_, SETTING_STREAM_SAMPLERATE));
 	reconnect_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_RECONNECT));
 	reconnect_delay_->setValue((int)obs_data_get_int(settings_, SETTING_RECONNECT_DELAY));
 	reconnect_max_->setValue((int)obs_data_get_int(settings_, SETTING_RECONNECT_MAX));
@@ -169,6 +196,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 
 	/* Apply initial mount visibility based on the loaded protocol. */
 	onProtocolChanged(protocol_->currentIndex());
+	/* Apply initial Opus-note visibility based on the loaded codec. */
+	onCodecChanged(codec_->currentIndex());
 }
 
 void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
@@ -182,6 +211,17 @@ void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
 	server_form_->setRowVisible(tls_row_index_, !is_shoutcast);
 }
 
+void RadioOutputConfigDialog::onCodecChanged(int /*index*/)
+{
+	/* Opus is intrinsically 48 kHz; the stream-samplerate selector can't
+	 * change that.  Show the advisory note only when Opus is selected so the
+	 * UI doesn't imply the selector does something it won't.  The selector
+	 * stays enabled (the value is preserved for when the user switches back
+	 * to MP3). */
+	const bool is_opus = (codec_->currentData().toInt() == RADIO_CODEC_OPUS);
+	audio_form_->setRowVisible(samplerate_note_row_index_, is_opus);
+}
+
 void RadioOutputConfigDialog::onAccept()
 {
 	obs_data_set_int(settings_, SETTING_PROTOCOL, protocol_->currentData().toInt());
@@ -192,6 +232,7 @@ void RadioOutputConfigDialog::onAccept()
 	obs_data_set_bool(settings_, SETTING_TLS, tls_enabled_->isChecked());
 	obs_data_set_int(settings_, SETTING_CODEC, codec_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_BITRATE, bitrate_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_STREAM_SAMPLERATE, samplerate_->currentData().toInt());
 	obs_data_set_bool(settings_, SETTING_RECONNECT, reconnect_enabled_->isChecked());
 	obs_data_set_int(settings_, SETTING_RECONNECT_DELAY, reconnect_delay_->value());
 	obs_data_set_int(settings_, SETTING_RECONNECT_MAX, reconnect_max_->value());

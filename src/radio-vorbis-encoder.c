@@ -277,6 +277,16 @@ static bool vorbis_init(struct radio_output *context, uint32_t sample_rate, int 
 		return false;
 	}
 
+	/* Vorbis has no resampler in our pipeline (PCM arrives at the OBS input
+	 * rate), so a stream samplerate that differs from the input can't be
+	 * honored without pitch-shifting.  Warn-and-ignore: encode at the input
+	 * rate.  (Choosing a target equal to the OBS rate is the no-op case.) */
+	if (context->stream_samplerate && context->stream_samplerate != sample_rate)
+		obs_log(LOG_WARNING,
+			"Vorbis has no resampler; ignoring stream samplerate %u Hz and using the OBS input rate %u Hz",
+			context->stream_samplerate, sample_rate);
+	context->out_samplerate = sample_rate;
+
 	struct vorbis_state *st = bzalloc(sizeof(struct vorbis_state));
 	st->sample_rate = sample_rate;
 	st->channels = channels;
