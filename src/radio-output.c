@@ -61,6 +61,7 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 	context->output = output;
 	context->state = RADIO_STATE_DISCONNECTED;
 	pthread_mutex_init(&context->state_mutex, NULL);
+	pthread_mutex_init(&context->encoder_mutex, NULL);
 
 #ifdef HAVE_LIBSHOUT
 	shout_init();
@@ -116,19 +117,27 @@ static void radio_output_teardown(struct radio_output *context)
 		obs_log(LOG_INFO, "Encoder send thread stopped");
 	}
 
-	/* Encoder flush — trailing MP3 frames / final Ogg EOS page. */
-	if (context->encoder && context->shout) {
-		uint8_t flush_buf[16 * 1024];
-		int flush_bytes = context->encoder->flush(context, flush_buf, sizeof(flush_buf));
-		if (flush_bytes > 0) {
-			int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
-			if (flush_ret != SHOUTERR_SUCCESS)
-				obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
-		}
-	}
+	/* Encoder flush (trailing MP3 frames / final Ogg EOS page) + destroy, both
+	 * under encoder_mutex so an in-flight raw_audio encode_frame can't run
+	 * against freed encoder state (end_data_capture above does not drain a
+	 * callback already executing on libobs's shared audio thread).  The audio
+	 * thread trylocks the same mutex and drops its callback while we hold it.
+	 * The flush bytes are produced under the lock but sent to the network
+	 * AFTER releasing it, so a slow/dead peer can't stall the audio thread. */
+	uint8_t flush_buf[16 * 1024];
+	int flush_bytes = 0;
+	pthread_mutex_lock(&context->encoder_mutex);
+	if (context->encoder && context->shout)
+		flush_bytes = context->encoder->flush(context, flush_buf, sizeof(flush_buf));
 	if (context->encoder) {
 		context->encoder->destroy(context);
 		context->encoder = NULL;
+	}
+	pthread_mutex_unlock(&context->encoder_mutex);
+	if (flush_bytes > 0 && context->shout) {
+		int flush_ret = shout_send(context->shout, flush_buf, (size_t)flush_bytes);
+		if (flush_ret != SHOUTERR_SUCCESS)
+			obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
 	}
 	if (context->shout) {
 		shout_close(context->shout);
@@ -166,6 +175,7 @@ static void radio_output_destroy(void *data)
 #endif
 
 	pthread_mutex_destroy(&context->state_mutex);
+	pthread_mutex_destroy(&context->encoder_mutex);
 	bfree(context->host);
 	bfree(context->mount);
 	bfree(context->password);
@@ -656,11 +666,20 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 	if (!frames || !frames->frames)
 		return;
 
-	/* send_buf.data doubles as the "ready to write" gate — set by start()
-	 * (radio_send_buf_init) only after mutex/cond/send thread are all live.
-	 * encoder is set one step earlier, so both null-checks matter. */
-	if (!context->encoder || !context->send_buf.data)
+	/* ALL access to context->encoder / encoder_priv happens under
+	 * encoder_mutex, serialized against the reconnect thread's full re-init
+	 * (encoder->on_reconnect) AND teardown's encoder->destroy.  trylock (not
+	 * lock) so we never block libobs's shared audio thread: if a re-init or
+	 * teardown is in progress we drop this callback's audio, which lands in a
+	 * reconnect/teardown gap and is inaudible.  send_buf.data is the "ready"
+	 * gate (set last by start, freed in teardown); re-checked here under the
+	 * lock so a half-rebuilt or freed encoder is never touched. */
+	if (pthread_mutex_trylock(&context->encoder_mutex) != 0)
 		return;
+	if (!context->encoder || !context->send_buf.data) {
+		pthread_mutex_unlock(&context->encoder_mutex);
+		return;
+	}
 
 	const float *left = (const float *)frames->data[0];
 	const float *right = frames->data[1] ? (const float *)frames->data[1] : left;
@@ -669,13 +688,16 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 	if (cap < 4096)
 		cap = 4096;
 	uint8_t *buf = bmalloc(cap);
-
 	int bytes = context->encoder->encode_frame(context, left, right, (size_t)frames->frames, buf, cap);
-	if (bytes > 0) {
+	pthread_mutex_unlock(&context->encoder_mutex);
+
+	/* send_buf_push runs AFTER the unlock (it takes send_mutex; the ring
+	 * buffer no-ops on a freed/zero-capacity buffer, so this is safe even if
+	 * teardown freed send_buf in the meantime). */
+	if (bytes > 0)
 		send_buf_push(context, buf, (size_t)bytes);
-	} else if (bytes < 0) {
+	else if (bytes < 0)
 		obs_log(LOG_ERROR, "[%s] encode_frame error: %d", context->encoder->name, bytes);
-	}
 
 	bfree(buf);
 #endif /* HAVE_LIBSHOUT */
