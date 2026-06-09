@@ -51,6 +51,13 @@ struct radio_output {
 	int codec; // RADIO_CODEC_OPUS, RADIO_CODEC_MP3, etc.
 	int bitrate;
 
+	/* MP3-only knobs (libmp3lame).  Ignored by Opus/Vorbis.
+	 * lame_quality: 0 (best/slowest) .. 9 (worst/fastest); 2 is the historical
+	 * default.  channel_mode: RADIO_CHANNEL_* — mapped to LAME's MPEG_mode in
+	 * mp3_encoder_init (MONO downmixes L+R internally). */
+	int lame_quality;
+	int channel_mode;
+
 	/* Codec dispatch.  Selected in radio_output_start() from the codec id
 	 * (RADIO_CODEC_MP3 / RADIO_CODEC_OPUS).  NULL means no encoder is
 	 * currently active — raw_audio must bail. */
@@ -135,6 +142,12 @@ struct radio_output {
 #define RADIO_PROTOCOL_ICECAST   0
 #define RADIO_PROTOCOL_SHOUTCAST 1
 
+// MP3 channel-mode identifiers for the config + UI.  Mapped to libmp3lame's
+// MPEG_mode (STEREO / JOINT_STEREO / MONO) in mp3_encoder_init.
+#define RADIO_CHANNEL_STEREO       0
+#define RADIO_CHANNEL_JOINT_STEREO 1
+#define RADIO_CHANNEL_MONO         2
+
 static inline void set_state(struct radio_output *context, radio_state_t new_state)
 {
 	pthread_mutex_lock(&context->state_mutex);
@@ -169,6 +182,8 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_PROTOCOL             "protocol"
 #define SETTING_TLS                  "tls_enabled"
 #define SETTING_STREAM_SAMPLERATE    "stream_samplerate"
+#define SETTING_LAME_QUALITY         "lame_quality"
+#define SETTING_CHANNEL_MODE         "channel_mode"
 
 extern struct obs_output_info radio_output_info;
 
