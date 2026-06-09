@@ -77,6 +77,8 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->protocol = (int)obs_data_get_int(settings, SETTING_PROTOCOL);
 	context->use_tls = obs_data_get_bool(settings, SETTING_TLS);
 	context->stream_samplerate = (uint32_t)obs_data_get_int(settings, SETTING_STREAM_SAMPLERATE);
+	context->lame_quality = (int)obs_data_get_int(settings, SETTING_LAME_QUALITY);
+	context->channel_mode = (int)obs_data_get_int(settings, SETTING_CHANNEL_MODE);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	/* Setting stores seconds; convert to milliseconds for internal use. */
@@ -269,7 +271,10 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	snprintf(ai_samplerate, sizeof(ai_samplerate), "%u", sample_rate);
 	shout_set_audio_info(shout, SHOUT_AI_BITRATE, ai_bitrate);
 	shout_set_audio_info(shout, SHOUT_AI_SAMPLERATE, ai_samplerate);
-	shout_set_audio_info(shout, SHOUT_AI_CHANNELS, "2");
+	/* MP3 mono mode produces a single-channel stream; everything else is
+	 * stereo.  Opus/Vorbis ignore channel_mode (always stereo here). */
+	const bool mono = (context->codec == RADIO_CODEC_MP3 && context->channel_mode == RADIO_CHANNEL_MONO);
+	shout_set_audio_info(shout, SHOUT_AI_CHANNELS, mono ? "1" : "2");
 }
 
 /*
@@ -407,7 +412,28 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 	lame_set_num_channels(context->lame_gfp, channels);
 	lame_set_out_samplerate(context->lame_gfp, out_rate);
 	lame_set_brate(context->lame_gfp, context->bitrate);
-	lame_set_quality(context->lame_gfp, 2);
+	/* Encoding quality 0 (best/slowest) .. 9 (fastest); clamp defensively. */
+	int q = context->lame_quality;
+	if (q < 0 || q > 9)
+		q = 2;
+	lame_set_quality(context->lame_gfp, q);
+	/* Channel mode.  num_channels above stays at the stereo input count; LAME
+	 * downmixes L+R internally when the output MPEG_mode is MONO, so the audio
+	 * callback path is unchanged. */
+	MPEG_mode lame_mode = STEREO;
+	switch (context->channel_mode) {
+	case RADIO_CHANNEL_JOINT_STEREO:
+		lame_mode = JOINT_STEREO;
+		break;
+	case RADIO_CHANNEL_MONO:
+		lame_mode = MONO;
+		break;
+	case RADIO_CHANNEL_STEREO:
+	default:
+		lame_mode = STEREO;
+		break;
+	}
+	lame_set_mode(context->lame_gfp, lame_mode);
 	if (lame_init_params(context->lame_gfp) < 0) {
 		obs_log(LOG_ERROR, "lame_init_params() failed");
 		lame_close(context->lame_gfp);
@@ -417,11 +443,12 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 	/* lame_get_out_samplerate() reflects LAME's final choice (it snaps to the
 	 * nearest valid MPEG rate), so report that — not the requested value. */
 	context->out_samplerate = (uint32_t)lame_get_out_samplerate(context->lame_gfp);
+	const char *mode_str = (lame_mode == MONO) ? "mono" : (lame_mode == JOINT_STEREO) ? "joint-stereo" : "stereo";
 	if (context->out_samplerate != sample_rate)
-		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %d ch, %d kbps", sample_rate,
-			context->out_samplerate, channels, context->bitrate);
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %s, q%d, %d kbps", sample_rate,
+			context->out_samplerate, mode_str, q, context->bitrate);
 	else
-		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %d ch, %d kbps", sample_rate, channels, context->bitrate);
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %s, q%d, %d kbps", sample_rate, mode_str, q, context->bitrate);
 	return true;
 }
 

@@ -74,41 +74,70 @@ QWidget *buildServerGroup(RadioOutputConfigDialog *parent, QComboBox *&protocol,
 	return group;
 }
 
-QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, QComboBox *&codec, QComboBox *&bitrate,
-			 QComboBox *&samplerate, QLabel *&samplerate_note, QFormLayout *&form_out,
-			 int &samplerate_note_row_index_out)
+struct AudioGroupWidgets {
+	QComboBox *&codec;
+	QComboBox *&channel_mode;
+	QComboBox *&bitrate;
+	QComboBox *&quality;
+	QComboBox *&samplerate;
+	QLabel *&samplerate_note;
+	QFormLayout *&form_out;
+	int &channel_mode_row_index_out;
+	int &quality_row_index_out;
+	int &samplerate_note_row_index_out;
+};
+
+QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, const AudioGroupWidgets &w)
 {
 	auto *group = new QGroupBox(obs_module_text("RadioOutput.Audio.Group"), parent);
 	auto *form = new QFormLayout(group);
 
-	codec = new QComboBox(group);
-	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Opus"), RADIO_CODEC_OPUS);
-	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.MP3"), RADIO_CODEC_MP3);
-	codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Vorbis"), RADIO_CODEC_VORBIS);
-	form->addRow(obs_module_text("RadioOutput.Audio.Codec"), codec);
+	w.codec = new QComboBox(group);
+	w.codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Opus"), RADIO_CODEC_OPUS);
+	w.codec->addItem(obs_module_text("RadioOutput.Audio.Codec.MP3"), RADIO_CODEC_MP3);
+	w.codec->addItem(obs_module_text("RadioOutput.Audio.Codec.Vorbis"), RADIO_CODEC_VORBIS);
+	form->addRow(obs_module_text("RadioOutput.Audio.Codec"), w.codec);
 
-	bitrate = new QComboBox(group);
+	/* MP3-only: channel mode (Stereo / Joint Stereo / Mono).  Hidden for
+	 * Opus/Vorbis via onCodecChanged. */
+	w.channel_mode = new QComboBox(group);
+	w.channel_mode->addItem(obs_module_text("RadioOutput.Audio.ChannelMode.Stereo"), RADIO_CHANNEL_STEREO);
+	w.channel_mode->addItem(obs_module_text("RadioOutput.Audio.ChannelMode.JointStereo"),
+				RADIO_CHANNEL_JOINT_STEREO);
+	w.channel_mode->addItem(obs_module_text("RadioOutput.Audio.ChannelMode.Mono"), RADIO_CHANNEL_MONO);
+	w.channel_mode_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.ChannelMode"), w.channel_mode);
+
+	w.bitrate = new QComboBox(group);
 	for (const int br : kBitrates) {
-		bitrate->addItem(QString("%1 kbps").arg(br), br);
+		w.bitrate->addItem(QString("%1 kbps").arg(br), br);
 	}
-	form->addRow(obs_module_text("RadioOutput.Audio.Bitrate"), bitrate);
+	form->addRow(obs_module_text("RadioOutput.Audio.Bitrate"), w.bitrate);
 
-	samplerate = new QComboBox(group);
-	samplerate->addItem(obs_module_text("RadioOutput.Audio.Samplerate.MatchOBS"), 0);
-	for (const int sr : kSamplerates) {
-		samplerate->addItem(QString("%1 Hz").arg(sr), sr);
+	/* MP3-only: libmp3lame encoding quality 0 (best) .. 9 (fastest). */
+	w.quality = new QComboBox(group);
+	for (int q = 0; q <= 9; ++q) {
+		w.quality->addItem(QString::number(q), q);
 	}
-	form->addRow(obs_module_text("RadioOutput.Audio.Samplerate"), samplerate);
+	w.quality_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.Quality"), w.quality);
+
+	w.samplerate = new QComboBox(group);
+	w.samplerate->addItem(obs_module_text("RadioOutput.Audio.Samplerate.MatchOBS"), 0);
+	for (const int sr : kSamplerates) {
+		w.samplerate->addItem(QString("%1 Hz").arg(sr), sr);
+	}
+	form->addRow(obs_module_text("RadioOutput.Audio.Samplerate"), w.samplerate);
 
 	/* Opus-only advisory: shown when Codec = Opus, hidden otherwise (toggled
 	 * by onCodecChanged).  Opus is intrinsically 48 kHz, so the selector above
 	 * has no effect for it. */
-	samplerate_note = new QLabel(obs_module_text("RadioOutput.Audio.Samplerate.OpusNote"), group);
-	samplerate_note->setWordWrap(true);
-	samplerate_note_row_index_out = form->rowCount();
-	form->addRow(QString(), samplerate_note);
+	w.samplerate_note = new QLabel(obs_module_text("RadioOutput.Audio.Samplerate.OpusNote"), group);
+	w.samplerate_note->setWordWrap(true);
+	w.samplerate_note_row_index_out = form->rowCount();
+	form->addRow(QString(), w.samplerate_note);
 
-	form_out = form;
+	w.form_out = form;
 	return group;
 }
 
@@ -165,8 +194,9 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	auto *layout = new QVBoxLayout(this);
 	layout->addWidget(buildServerGroup(this, protocol_, host_, port_, mount_, password_, tls_enabled_, server_form_,
 					   mount_row_index_, tls_row_index_));
-	layout->addWidget(buildAudioGroup(this, codec_, bitrate_, samplerate_, samplerate_note_, audio_form_,
-					  samplerate_note_row_index_));
+	layout->addWidget(buildAudioGroup(this, {codec_, channel_mode_, bitrate_, quality_, samplerate_,
+						 samplerate_note_, audio_form_, channel_mode_row_index_,
+						 quality_row_index_, samplerate_note_row_index_}));
 	layout->addWidget(buildReconnectGroup(this, reconnect_enabled_, reconnect_delay_, reconnect_max_));
 	layout->addWidget(buildIntegrationGroup(this, start_with_streaming_));
 
@@ -187,7 +217,9 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	password_->setText(QString::fromUtf8(obs_data_get_string(settings_, SETTING_PASSWORD)));
 	tls_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_TLS));
 	selectByData(codec_, (int)obs_data_get_int(settings_, SETTING_CODEC));
+	selectByData(channel_mode_, (int)obs_data_get_int(settings_, SETTING_CHANNEL_MODE));
 	selectByData(bitrate_, (int)obs_data_get_int(settings_, SETTING_BITRATE));
+	selectByData(quality_, (int)obs_data_get_int(settings_, SETTING_LAME_QUALITY));
 	selectByData(samplerate_, (int)obs_data_get_int(settings_, SETTING_STREAM_SAMPLERATE));
 	reconnect_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_RECONNECT));
 	reconnect_delay_->setValue((int)obs_data_get_int(settings_, SETTING_RECONNECT_DELAY));
@@ -218,7 +250,13 @@ void RadioOutputConfigDialog::onCodecChanged(int /*index*/)
 	 * UI doesn't imply the selector does something it won't.  The selector
 	 * stays enabled (the value is preserved for when the user switches back
 	 * to MP3). */
-	const bool is_opus = (codec_->currentData().toInt() == RADIO_CODEC_OPUS);
+	const int codec = codec_->currentData().toInt();
+	const bool is_opus = (codec == RADIO_CODEC_OPUS);
+	const bool is_mp3 = (codec == RADIO_CODEC_MP3);
+	/* Channel mode + quality are libmp3lame knobs — only meaningful for MP3. */
+	audio_form_->setRowVisible(channel_mode_row_index_, is_mp3);
+	audio_form_->setRowVisible(quality_row_index_, is_mp3);
+	/* The samplerate note explains Opus's fixed 48 kHz. */
 	audio_form_->setRowVisible(samplerate_note_row_index_, is_opus);
 }
 
@@ -231,7 +269,9 @@ void RadioOutputConfigDialog::onAccept()
 	obs_data_set_string(settings_, SETTING_PASSWORD, password_->text().toUtf8().constData());
 	obs_data_set_bool(settings_, SETTING_TLS, tls_enabled_->isChecked());
 	obs_data_set_int(settings_, SETTING_CODEC, codec_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_CHANNEL_MODE, channel_mode_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_BITRATE, bitrate_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_LAME_QUALITY, quality_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_STREAM_SAMPLERATE, samplerate_->currentData().toInt());
 	obs_data_set_bool(settings_, SETTING_RECONNECT, reconnect_enabled_->isChecked());
 	obs_data_set_int(settings_, SETTING_RECONNECT_DELAY, reconnect_delay_->value());

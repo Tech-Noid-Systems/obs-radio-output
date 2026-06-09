@@ -66,11 +66,16 @@ private: // NOLINT(readability-redundant-access-specifiers) — keeps data membe
 	QComboBox *codec_;
 	QComboBox *bitrate_;
 
-	/* Audio group: the codec combo drives the Opus-only samplerate note
-	 * (Opus always streams at 48 kHz; the selector can't change that). */
+	/* Audio group.  The codec combo drives row visibility: channel mode and
+	 * quality are MP3-only; the samplerate note is Opus-only (Opus is always
+	 * 48 kHz).  All toggled in onCodecChanged. */
+	QComboBox *channel_mode_;
+	QComboBox *quality_;
 	QComboBox *samplerate_;
 	QLabel *samplerate_note_;
 	QFormLayout *audio_form_;
+	int channel_mode_row_index_;
+	int quality_row_index_;
 	int samplerate_note_row_index_;
 
 	QCheckBox *reconnect_enabled_;
