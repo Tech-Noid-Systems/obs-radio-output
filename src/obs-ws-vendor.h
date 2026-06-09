@@ -41,12 +41,16 @@ extern "C" {
  *   - radio.stop         : stop the running radio output (idempotent)
  *   - radio.pushMetadata : set the "now playing" title  {title: string}
  *   - radio.applyConfig  : merge SETTING_* keys into the saved config (next-start)
+ *   - radio.getListeners : last-polled listener count  {listeners: int, valid: bool} (read-only)
  *
- * radio.status and radio.pushMetadata answer inline; start/stop/applyConfig touch
- * UI-thread-owned state and are marshaled onto the OBS UI thread.
+ * radio.status, radio.pushMetadata and radio.getListeners answer inline;
+ * start/stop/applyConfig touch UI-thread-owned state and are marshaled onto the
+ * OBS UI thread.
  *
- * Still deferred: radio.getListeners — the count lives in a Qt-main-thread poller
- * with no global cache; exposing it needs a cached value or a synchronous client.
+ * radio.getListeners reads a cached count the dock's ListenerPoll publishes via
+ * radio_output_set_listener_count() (atomic_int).  It is -1 ("valid": false)
+ * when disconnected / not yet polled, and may be up to one poll interval (~10 s)
+ * stale.
  */
 
 /* Call from obs_module_load().  Hooks the frontend event that performs the

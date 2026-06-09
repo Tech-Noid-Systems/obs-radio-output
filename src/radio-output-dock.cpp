@@ -179,6 +179,11 @@ void RadioOutputDock::onListenerCount(int count)
 	/* Amber on error, default on success.  Same vocabulary the status row
 	 * uses for its RECONNECTING amber. */
 	listenerLabel_->setStyleSheet(count < 0 ? QStringLiteral("QLabel { color: #d17d00; }") : QString());
+
+	/* Publish to the shared cache the obs-websocket radio.getListeners verb
+	 * reads.  -1 (error/unknown) is forwarded verbatim so a remote client
+	 * sees the same "unknown" the dock paints amber. */
+	radio_output_set_listener_count(count);
 }
 
 void RadioOutputDock::pollState()
@@ -240,6 +245,9 @@ void RadioOutputDock::pollState()
 		listenerLabel_->setText(QString::fromUtf8(obs_module_text("RadioOutput.Dock.Listeners"))
 						.arg(obs_module_text("RadioOutput.Dock.Listeners.Unknown")));
 		listenerLabel_->setStyleSheet(QString());
+		/* No longer polling — invalidate the cached count so
+		 * radio.getListeners reports "unknown" instead of a stale value. */
+		radio_output_set_listener_count(-1);
 	}
 	lastState_ = state;
 }
