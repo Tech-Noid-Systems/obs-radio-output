@@ -78,11 +78,19 @@ struct AudioGroupWidgets {
 	QComboBox *&codec;
 	QComboBox *&channel_mode;
 	QComboBox *&bitrate;
+	QComboBox *&bitrate_mode;
+	QComboBox *&vbr_quality;
+	QComboBox *&vbr_min;
+	QComboBox *&vbr_max;
 	QComboBox *&quality;
 	QComboBox *&samplerate;
 	QLabel *&samplerate_note;
 	QFormLayout *&form_out;
 	int &channel_mode_row_index_out;
+	int &bitrate_mode_row_index_out;
+	int &vbr_quality_row_index_out;
+	int &vbr_min_row_index_out;
+	int &vbr_max_row_index_out;
 	int &quality_row_index_out;
 	int &samplerate_note_row_index_out;
 };
@@ -108,11 +116,41 @@ QWidget *buildAudioGroup(RadioOutputConfigDialog *parent, const AudioGroupWidget
 	w.channel_mode_row_index_out = form->rowCount();
 	form->addRow(obs_module_text("RadioOutput.Audio.ChannelMode"), w.channel_mode);
 
+	/* MP3-only: bitrate mode.  CBR/ABR use the Bitrate combo below as the
+	 * fixed/average rate; VBR is quality-driven.  VBR Quality + Min/Max rows
+	 * appear conditionally (see updateAudioVisibility). */
+	w.bitrate_mode = new QComboBox(group);
+	w.bitrate_mode->addItem(obs_module_text("RadioOutput.Audio.BitrateMode.CBR"), RADIO_BITRATE_CBR);
+	w.bitrate_mode->addItem(obs_module_text("RadioOutput.Audio.BitrateMode.ABR"), RADIO_BITRATE_ABR);
+	w.bitrate_mode->addItem(obs_module_text("RadioOutput.Audio.BitrateMode.VBR"), RADIO_BITRATE_VBR);
+	w.bitrate_mode_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.BitrateMode"), w.bitrate_mode);
+
 	w.bitrate = new QComboBox(group);
 	for (const int br : kBitrates) {
 		w.bitrate->addItem(QString("%1 kbps").arg(br), br);
 	}
 	form->addRow(obs_module_text("RadioOutput.Audio.Bitrate"), w.bitrate);
+
+	/* MP3 + VBR only: VBR quality 0 (best/largest) .. 9 (smallest). */
+	w.vbr_quality = new QComboBox(group);
+	for (int q = 0; q <= 9; ++q) {
+		w.vbr_quality->addItem(QString::number(q), q);
+	}
+	w.vbr_quality_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.VbrQuality"), w.vbr_quality);
+
+	/* MP3 + VBR/ABR only: min / max bitrate bounds (reuse the bitrate list). */
+	w.vbr_min = new QComboBox(group);
+	w.vbr_max = new QComboBox(group);
+	for (const int br : kBitrates) {
+		w.vbr_min->addItem(QString("%1 kbps").arg(br), br);
+		w.vbr_max->addItem(QString("%1 kbps").arg(br), br);
+	}
+	w.vbr_min_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.VbrMin"), w.vbr_min);
+	w.vbr_max_row_index_out = form->rowCount();
+	form->addRow(obs_module_text("RadioOutput.Audio.VbrMax"), w.vbr_max);
 
 	/* MP3-only: libmp3lame encoding quality 0 (best) .. 9 (fastest). */
 	w.quality = new QComboBox(group);
@@ -194,9 +232,11 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	auto *layout = new QVBoxLayout(this);
 	layout->addWidget(buildServerGroup(this, protocol_, host_, port_, mount_, password_, tls_enabled_, server_form_,
 					   mount_row_index_, tls_row_index_));
-	layout->addWidget(buildAudioGroup(this, {codec_, channel_mode_, bitrate_, quality_, samplerate_,
-						 samplerate_note_, audio_form_, channel_mode_row_index_,
-						 quality_row_index_, samplerate_note_row_index_}));
+	layout->addWidget(
+		buildAudioGroup(this, {codec_, channel_mode_, bitrate_, bitrate_mode_, vbr_quality_, vbr_min_, vbr_max_,
+				       quality_, samplerate_, samplerate_note_, audio_form_, channel_mode_row_index_,
+				       bitrate_mode_row_index_, vbr_quality_row_index_, vbr_min_row_index_,
+				       vbr_max_row_index_, quality_row_index_, samplerate_note_row_index_}));
 	layout->addWidget(buildReconnectGroup(this, reconnect_enabled_, reconnect_delay_, reconnect_max_));
 	layout->addWidget(buildIntegrationGroup(this, start_with_streaming_));
 
@@ -208,6 +248,8 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 		&RadioOutputConfigDialog::onProtocolChanged);
 	connect(codec_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&RadioOutputConfigDialog::onCodecChanged);
+	connect(bitrate_mode_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&RadioOutputConfigDialog::onBitrateModeChanged);
 
 	/* Populate widgets from the current settings. */
 	selectByData(protocol_, (int)obs_data_get_int(settings_, SETTING_PROTOCOL));
@@ -219,6 +261,10 @@ RadioOutputConfigDialog::RadioOutputConfigDialog(obs_data_t *settings, QWidget *
 	selectByData(codec_, (int)obs_data_get_int(settings_, SETTING_CODEC));
 	selectByData(channel_mode_, (int)obs_data_get_int(settings_, SETTING_CHANNEL_MODE));
 	selectByData(bitrate_, (int)obs_data_get_int(settings_, SETTING_BITRATE));
+	selectByData(bitrate_mode_, (int)obs_data_get_int(settings_, SETTING_BITRATE_MODE));
+	selectByData(vbr_quality_, (int)obs_data_get_int(settings_, SETTING_VBR_QUALITY));
+	selectByData(vbr_min_, (int)obs_data_get_int(settings_, SETTING_VBR_MIN_BITRATE));
+	selectByData(vbr_max_, (int)obs_data_get_int(settings_, SETTING_VBR_MAX_BITRATE));
 	selectByData(quality_, (int)obs_data_get_int(settings_, SETTING_LAME_QUALITY));
 	selectByData(samplerate_, (int)obs_data_get_int(settings_, SETTING_STREAM_SAMPLERATE));
 	reconnect_enabled_->setChecked(obs_data_get_bool(settings_, SETTING_RECONNECT));
@@ -245,17 +291,32 @@ void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
 
 void RadioOutputConfigDialog::onCodecChanged(int /*index*/)
 {
-	/* Opus is intrinsically 48 kHz; the stream-samplerate selector can't
-	 * change that.  Show the advisory note only when Opus is selected so the
-	 * UI doesn't imply the selector does something it won't.  The selector
-	 * stays enabled (the value is preserved for when the user switches back
-	 * to MP3). */
+	updateAudioVisibility();
+}
+
+void RadioOutputConfigDialog::onBitrateModeChanged(int /*index*/)
+{
+	updateAudioVisibility();
+}
+
+void RadioOutputConfigDialog::updateAudioVisibility()
+{
 	const int codec = codec_->currentData().toInt();
 	const bool is_opus = (codec == RADIO_CODEC_OPUS);
 	const bool is_mp3 = (codec == RADIO_CODEC_MP3);
-	/* Channel mode + quality are libmp3lame knobs — only meaningful for MP3. */
+	const int mode = bitrate_mode_->currentData().toInt();
+	const bool is_vbr = (mode == RADIO_BITRATE_VBR);
+	const bool is_abr = (mode == RADIO_BITRATE_ABR);
+
+	/* Channel mode, quality, and bitrate mode are libmp3lame knobs — only
+	 * meaningful for MP3.  Hidden values are preserved in the obs_data_t. */
 	audio_form_->setRowVisible(channel_mode_row_index_, is_mp3);
 	audio_form_->setRowVisible(quality_row_index_, is_mp3);
+	audio_form_->setRowVisible(bitrate_mode_row_index_, is_mp3);
+	/* VBR Quality only applies to VBR; Min/Max bound both VBR and ABR. */
+	audio_form_->setRowVisible(vbr_quality_row_index_, is_mp3 && is_vbr);
+	audio_form_->setRowVisible(vbr_min_row_index_, is_mp3 && (is_vbr || is_abr));
+	audio_form_->setRowVisible(vbr_max_row_index_, is_mp3 && (is_vbr || is_abr));
 	/* The samplerate note explains Opus's fixed 48 kHz. */
 	audio_form_->setRowVisible(samplerate_note_row_index_, is_opus);
 }
@@ -271,6 +332,10 @@ void RadioOutputConfigDialog::onAccept()
 	obs_data_set_int(settings_, SETTING_CODEC, codec_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_CHANNEL_MODE, channel_mode_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_BITRATE, bitrate_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_BITRATE_MODE, bitrate_mode_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_VBR_QUALITY, vbr_quality_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_VBR_MIN_BITRATE, vbr_min_->currentData().toInt());
+	obs_data_set_int(settings_, SETTING_VBR_MAX_BITRATE, vbr_max_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_LAME_QUALITY, quality_->currentData().toInt());
 	obs_data_set_int(settings_, SETTING_STREAM_SAMPLERATE, samplerate_->currentData().toInt());
 	obs_data_set_bool(settings_, SETTING_RECONNECT, reconnect_enabled_->isChecked());

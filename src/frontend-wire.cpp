@@ -85,6 +85,10 @@ void apply_defaults(obs_data_t *data)
 	obs_data_set_default_int(data, SETTING_STREAM_SAMPLERATE, 0); /* 0 = match OBS input rate */
 	obs_data_set_default_int(data, SETTING_LAME_QUALITY, 2);      /* libmp3lame default quality */
 	obs_data_set_default_int(data, SETTING_CHANNEL_MODE, RADIO_CHANNEL_STEREO);
+	obs_data_set_default_int(data, SETTING_BITRATE_MODE, RADIO_BITRATE_CBR);
+	obs_data_set_default_int(data, SETTING_VBR_QUALITY, 4);
+	obs_data_set_default_int(data, SETTING_VBR_MIN_BITRATE, 32);
+	obs_data_set_default_int(data, SETTING_VBR_MAX_BITRATE, 320);
 }
 
 void load_config_from_disk()
@@ -265,7 +269,8 @@ extern "C" bool frontend_wire_apply_config(obs_data_t *patch)
 	}
 	for (const char *key :
 	     {SETTING_PORT, SETTING_CODEC, SETTING_BITRATE, SETTING_PROTOCOL, SETTING_RECONNECT_DELAY,
-	      SETTING_RECONNECT_MAX, SETTING_STREAM_SAMPLERATE, SETTING_LAME_QUALITY, SETTING_CHANNEL_MODE}) {
+	      SETTING_RECONNECT_MAX, SETTING_STREAM_SAMPLERATE, SETTING_LAME_QUALITY, SETTING_CHANNEL_MODE,
+	      SETTING_BITRATE_MODE, SETTING_VBR_QUALITY, SETTING_VBR_MIN_BITRATE, SETTING_VBR_MAX_BITRATE}) {
 		if (obs_data_has_user_value(patch, key))
 			obs_data_set_int(g_config, key, obs_data_get_int(patch, key));
 	}
