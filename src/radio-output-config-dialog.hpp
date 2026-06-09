@@ -70,13 +70,25 @@ private: // NOLINT(readability-redundant-access-specifiers) — keeps data membe
 	 * quality are MP3-only; the samplerate note is Opus-only (Opus is always
 	 * 48 kHz).  All toggled in onCodecChanged. */
 	QComboBox *channel_mode_;
+	QComboBox *bitrate_mode_;
+	QComboBox *vbr_quality_;
+	QComboBox *vbr_min_;
+	QComboBox *vbr_max_;
 	QComboBox *quality_;
 	QComboBox *samplerate_;
 	QLabel *samplerate_note_;
 	QFormLayout *audio_form_;
 	int channel_mode_row_index_;
+	int bitrate_mode_row_index_;
+	int vbr_quality_row_index_;
+	int vbr_min_row_index_;
+	int vbr_max_row_index_;
 	int quality_row_index_;
 	int samplerate_note_row_index_;
+
+	/* Recompute MP3/codec/bitrate-mode-dependent row visibility.  Called from
+	 * both onCodecChanged and onBitrateModeChanged. */
+	void updateAudioVisibility();
 
 	QCheckBox *reconnect_enabled_;
 	QSpinBox *reconnect_delay_;
@@ -86,4 +98,5 @@ private: // NOLINT(readability-redundant-access-specifiers) — keeps data membe
 private slots: // NOLINT(readability-redundant-access-specifiers)
 	void onProtocolChanged(int index);
 	void onCodecChanged(int index);
+	void onBitrateModeChanged(int index);
 };

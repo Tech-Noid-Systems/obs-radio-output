@@ -79,6 +79,10 @@ static void radio_output_update(void *data, obs_data_t *settings)
 	context->stream_samplerate = (uint32_t)obs_data_get_int(settings, SETTING_STREAM_SAMPLERATE);
 	context->lame_quality = (int)obs_data_get_int(settings, SETTING_LAME_QUALITY);
 	context->channel_mode = (int)obs_data_get_int(settings, SETTING_CHANNEL_MODE);
+	context->bitrate_mode = (int)obs_data_get_int(settings, SETTING_BITRATE_MODE);
+	context->vbr_quality = (int)obs_data_get_int(settings, SETTING_VBR_QUALITY);
+	context->vbr_min_bitrate = (int)obs_data_get_int(settings, SETTING_VBR_MIN_BITRATE);
+	context->vbr_max_bitrate = (int)obs_data_get_int(settings, SETTING_VBR_MAX_BITRATE);
 
 	context->reconnect_enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	/* Setting stores seconds; convert to milliseconds for internal use. */
@@ -411,7 +415,39 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 	lame_set_in_samplerate(context->lame_gfp, (int)sample_rate);
 	lame_set_num_channels(context->lame_gfp, channels);
 	lame_set_out_samplerate(context->lame_gfp, out_rate);
-	lame_set_brate(context->lame_gfp, context->bitrate);
+	/* Bitrate mode: CBR (fixed `bitrate`), ABR (average `bitrate`), or VBR
+	 * (quality-driven within [min,max]).  min/max are applied only when set
+	 * (>0) so an unconfigured value doesn't clamp LAME's own defaults. */
+	const char *brate_mode_str = "cbr";
+	switch (context->bitrate_mode) {
+	case RADIO_BITRATE_ABR:
+		brate_mode_str = "abr";
+		lame_set_VBR(context->lame_gfp, vbr_abr);
+		lame_set_VBR_mean_bitrate_kbps(context->lame_gfp, context->bitrate);
+		if (context->vbr_min_bitrate > 0)
+			lame_set_VBR_min_bitrate_kbps(context->lame_gfp, context->vbr_min_bitrate);
+		if (context->vbr_max_bitrate > 0)
+			lame_set_VBR_max_bitrate_kbps(context->lame_gfp, context->vbr_max_bitrate);
+		break;
+	case RADIO_BITRATE_VBR: {
+		brate_mode_str = "vbr";
+		int vq = context->vbr_quality;
+		if (vq < 0 || vq > 9)
+			vq = 4;
+		lame_set_VBR(context->lame_gfp, vbr_default);
+		lame_set_VBR_q(context->lame_gfp, vq);
+		if (context->vbr_min_bitrate > 0)
+			lame_set_VBR_min_bitrate_kbps(context->lame_gfp, context->vbr_min_bitrate);
+		if (context->vbr_max_bitrate > 0)
+			lame_set_VBR_max_bitrate_kbps(context->lame_gfp, context->vbr_max_bitrate);
+		break;
+	}
+	case RADIO_BITRATE_CBR:
+	default:
+		lame_set_VBR(context->lame_gfp, vbr_off);
+		lame_set_brate(context->lame_gfp, context->bitrate);
+		break;
+	}
 	/* Encoding quality 0 (best/slowest) .. 9 (fastest); clamp defensively. */
 	int q = context->lame_quality;
 	if (q < 0 || q > 9)
@@ -445,10 +481,11 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 	context->out_samplerate = (uint32_t)lame_get_out_samplerate(context->lame_gfp);
 	const char *mode_str = (lame_mode == MONO) ? "mono" : (lame_mode == JOINT_STEREO) ? "joint-stereo" : "stereo";
 	if (context->out_samplerate != sample_rate)
-		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %s, q%d, %d kbps", sample_rate,
-			context->out_samplerate, mode_str, q, context->bitrate);
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %s, q%d, %s %d kbps", sample_rate,
+			context->out_samplerate, mode_str, q, brate_mode_str, context->bitrate);
 	else
-		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %s, q%d, %d kbps", sample_rate, mode_str, q, context->bitrate);
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %s, q%d, %s %d kbps", sample_rate, mode_str, q, brate_mode_str,
+			context->bitrate);
 	return true;
 }
 

@@ -58,6 +58,14 @@ struct radio_output {
 	int lame_quality;
 	int channel_mode;
 
+	/* MP3-only bitrate mode (RADIO_BITRATE_*).  CBR uses `bitrate` as the
+	 * fixed rate; ABR uses it as the average; VBR is driven by vbr_quality
+	 * within [vbr_min_bitrate, vbr_max_bitrate].  See mp3_encoder_init. */
+	int bitrate_mode;
+	int vbr_quality;     /* 0 (best) .. 9 (smallest); VBR only */
+	int vbr_min_bitrate; /* kbps; VBR/ABR lower bound */
+	int vbr_max_bitrate; /* kbps; VBR/ABR upper bound */
+
 	/* Codec dispatch.  Selected in radio_output_start() from the codec id
 	 * (RADIO_CODEC_MP3 / RADIO_CODEC_OPUS).  NULL means no encoder is
 	 * currently active — raw_audio must bail. */
@@ -148,6 +156,12 @@ struct radio_output {
 #define RADIO_CHANNEL_JOINT_STEREO 1
 #define RADIO_CHANNEL_MONO         2
 
+// MP3 bitrate-mode identifiers for the config + UI.  Mapped to libmp3lame's
+// vbr_mode (vbr_off / vbr_abr / vbr_default) in mp3_encoder_init.
+#define RADIO_BITRATE_CBR 0
+#define RADIO_BITRATE_ABR 1
+#define RADIO_BITRATE_VBR 2
+
 static inline void set_state(struct radio_output *context, radio_state_t new_state)
 {
 	pthread_mutex_lock(&context->state_mutex);
@@ -184,6 +198,10 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout);
 #define SETTING_STREAM_SAMPLERATE    "stream_samplerate"
 #define SETTING_LAME_QUALITY         "lame_quality"
 #define SETTING_CHANNEL_MODE         "channel_mode"
+#define SETTING_BITRATE_MODE         "bitrate_mode"
+#define SETTING_VBR_QUALITY          "vbr_quality"
+#define SETTING_VBR_MIN_BITRATE      "vbr_min_bitrate"
+#define SETTING_VBR_MAX_BITRATE      "vbr_max_bitrate"
 
 extern struct obs_output_info radio_output_info;
 
