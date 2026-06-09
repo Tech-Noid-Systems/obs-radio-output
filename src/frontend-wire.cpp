@@ -82,6 +82,7 @@ void apply_defaults(obs_data_t *data)
 	obs_data_set_default_int(data, SETTING_RECONNECT_MAX, 10);
 	obs_data_set_default_bool(data, SETTING_START_WITH_STREAMING, false);
 	obs_data_set_default_int(data, SETTING_PROTOCOL, RADIO_PROTOCOL_ICECAST);
+	obs_data_set_default_int(data, SETTING_STREAM_SAMPLERATE, 0); /* 0 = match OBS input rate */
 }
 
 void load_config_from_disk()
@@ -261,7 +262,7 @@ extern "C" bool frontend_wire_apply_config(obs_data_t *patch)
 			obs_data_set_string(g_config, key, obs_data_get_string(patch, key));
 	}
 	for (const char *key : {SETTING_PORT, SETTING_CODEC, SETTING_BITRATE, SETTING_PROTOCOL, SETTING_RECONNECT_DELAY,
-				SETTING_RECONNECT_MAX}) {
+				SETTING_RECONNECT_MAX, SETTING_STREAM_SAMPLERATE}) {
 		if (obs_data_has_user_value(patch, key))
 			obs_data_set_int(g_config, key, obs_data_get_int(patch, key));
 	}

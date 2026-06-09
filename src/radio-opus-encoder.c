@@ -239,6 +239,14 @@ static bool opus_init(struct radio_output *context, uint32_t sample_rate, int ch
 		return false;
 	}
 
+	/* Opus is intrinsically 48 kHz; a user-selected stream samplerate can't
+	 * change that.  Warn-and-ignore so the dialog's selector doesn't silently
+	 * mislead. */
+	if (context->stream_samplerate && context->stream_samplerate != 48000)
+		obs_log(LOG_WARNING, "Opus always streams at 48 kHz; ignoring stream samplerate %u Hz",
+			context->stream_samplerate);
+	context->out_samplerate = 48000;
+
 	struct opus_state *st = bzalloc(sizeof(struct opus_state));
 	st->sample_rate = sample_rate;
 	st->channels = channels;
