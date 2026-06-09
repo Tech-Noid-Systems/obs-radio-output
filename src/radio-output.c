@@ -5,7 +5,7 @@
 #include "reconnect.h"
 #include <plugin-support.h>
 
-#include <stdatomic.h>
+#include <util/threading.h>
 
 /*
  * Module-global pointer to the currently instantiated output, for the dock
@@ -36,17 +36,22 @@ struct radio_output *radio_output_get_active(void)
  * runs on the obs-websocket thread and reads it; an atomic_int lets that read
  * happen without locking.  -1 means "unknown" (disconnected, not yet polled,
  * or stats unparseable).  Value may be up to one poll interval (~10 s) stale.
+ *
+ * Uses libobs' os_atomic_*_long rather than C11 <stdatomic.h>: MSVC only
+ * enables stdatomic under /experimental:c11atomics, which the OBS Windows
+ * build doesn't set, so stdatomic fails to compile there.  os_atomic_* is
+ * portable across MSVC/clang/gcc.
  */
-static atomic_int g_listener_count = -1;
+static volatile long g_listener_count = -1;
 
 void radio_output_set_listener_count(int count)
 {
-	atomic_store(&g_listener_count, count);
+	os_atomic_set_long(&g_listener_count, count);
 }
 
 int radio_output_get_listener_count(void)
 {
-	return atomic_load(&g_listener_count);
+	return (int)os_atomic_load_long(&g_listener_count);
 }
 
 static const char *radio_output_get_name(void *type_data)
