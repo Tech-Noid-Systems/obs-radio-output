@@ -41,6 +41,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define REQUEST_STOP        "radio.stop"
 #define REQUEST_METADATA    "radio.pushMetadata"
 #define REQUEST_APPLYCONFIG "radio.applyConfig"
+#define REQUEST_GETLISTENERS "radio.getListeners"
 
 /* obs-websocket vendor handle.  NULL until OBS_FRONTEND_EVENT_FINISHED_LOADING
  * registers it, or permanently NULL if obs-websocket is not installed. */
@@ -249,6 +250,24 @@ static void radio_applyconfig_request_cb(obs_data_t *request_data, obs_data_t *r
 	obs_data_set_bool(response_data, "ok", t.result);
 }
 
+/*
+ * radio.getListeners — read-only.  Returns the dock's last-polled listener
+ * count from the shared cache (radio_output_get_listener_count).  The cache is
+ * an atomic_int, so this needs no UI-thread marshaling.  The count may be up to
+ * one poll interval (~10 s) stale, and is -1 ("unknown") when disconnected, not
+ * yet polled, or the server stats were unparseable.
+ * Response: listeners (int), valid (bool — true when listeners >= 0).
+ */
+static void radio_getlisteners_request_cb(obs_data_t *request_data, obs_data_t *response_data, void *priv_data)
+{
+	UNUSED_PARAMETER(request_data);
+	UNUSED_PARAMETER(priv_data);
+
+	const int count = radio_output_get_listener_count();
+	obs_data_set_int(response_data, "listeners", count);
+	obs_data_set_bool(response_data, "valid", count >= 0);
+}
+
 static void register_vendor(void)
 {
 	if (s_vendor)
@@ -269,6 +288,7 @@ static void register_vendor(void)
 		{REQUEST_STOP, radio_stop_request_cb},
 		{REQUEST_METADATA, radio_metadata_request_cb},
 		{REQUEST_APPLYCONFIG, radio_applyconfig_request_cb},
+		{REQUEST_GETLISTENERS, radio_getlisteners_request_cb},
 	};
 
 	for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
@@ -276,7 +296,8 @@ static void register_vendor(void)
 			obs_log(LOG_WARNING, "[obs-ws-vendor] failed to register '%s' request", requests[i].type);
 	}
 
-	obs_log(LOG_INFO, "[obs-ws-vendor] registered vendor '%s' (status, start, stop, pushMetadata, applyConfig)",
+	obs_log(LOG_INFO,
+		"[obs-ws-vendor] registered vendor '%s' (status, start, stop, pushMetadata, applyConfig, getListeners)",
 		VENDOR_NAME);
 }
 
@@ -305,6 +326,7 @@ void obs_ws_vendor_shutdown(void)
 		obs_websocket_vendor_unregister_request(s_vendor, REQUEST_STOP);
 		obs_websocket_vendor_unregister_request(s_vendor, REQUEST_METADATA);
 		obs_websocket_vendor_unregister_request(s_vendor, REQUEST_APPLYCONFIG);
+		obs_websocket_vendor_unregister_request(s_vendor, REQUEST_GETLISTENERS);
 		s_vendor = NULL;
 	}
 }

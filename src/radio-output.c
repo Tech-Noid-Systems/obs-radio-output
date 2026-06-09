@@ -5,6 +5,8 @@
 #include "reconnect.h"
 #include <plugin-support.h>
 
+#include <stdatomic.h>
+
 /*
  * Module-global pointer to the currently instantiated output, for the dock
  * widget (src/radio-output-dock.cpp) and frontend event handler (§B.3) to
@@ -24,6 +26,27 @@ static struct radio_output *g_active_output = NULL;
 struct radio_output *radio_output_get_active(void)
 {
 	return g_active_output;
+}
+
+/*
+ * Cached listener count for the obs-websocket radio.getListeners verb.
+ * The dock's ListenerPoll (src/radio-output-dock.cpp) is the sole writer —
+ * it stores each parsed Icecast/SHOUTcast count here (or -1 when not polling,
+ * on parse error, or when leaving CONNECTED).  The vendor request callback
+ * runs on the obs-websocket thread and reads it; an atomic_int lets that read
+ * happen without locking.  -1 means "unknown" (disconnected, not yet polled,
+ * or stats unparseable).  Value may be up to one poll interval (~10 s) stale.
+ */
+static atomic_int g_listener_count = -1;
+
+void radio_output_set_listener_count(int count)
+{
+	atomic_store(&g_listener_count, count);
+}
+
+int radio_output_get_listener_count(void)
+{
+	return atomic_load(&g_listener_count);
 }
 
 static const char *radio_output_get_name(void *type_data)

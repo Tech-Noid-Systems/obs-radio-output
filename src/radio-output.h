@@ -168,6 +168,16 @@ extern struct obs_output_info radio_output_info;
  */
 struct radio_output *radio_output_get_active(void);
 
+/*
+ * Listener-count cache shared between the dock's ListenerPoll (writer) and the
+ * obs-websocket radio.getListeners verb (reader).  _set stores the latest
+ * parsed count, or -1 to mean "unknown" (not polling / parse error / left
+ * CONNECTED).  _get returns the last stored value.  Backed by an atomic_int in
+ * radio-output.c, so the vendor thread can read without holding any lock.
+ */
+void radio_output_set_listener_count(int count);
+int radio_output_get_listener_count(void);
+
 #ifdef __cplusplus
 }
 #endif
