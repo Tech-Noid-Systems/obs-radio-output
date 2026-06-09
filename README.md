@@ -6,12 +6,19 @@ Stream audio from OBS Studio directly to Icecast and SHOUTcast internet radio se
 
 ## Features
 
-- Native OBS output — appears alongside built-in outputs, configurable from within OBS
-- Icecast 2.x support (SHOUTcast coming in a future release)
-- Opus and MP3 audio encoding
-- Auto-reconnect on dropped connections
-- Connection status display
-- macOS (Universal Binary), Windows (x64), and Linux (x86_64) support
+- **Native OBS output** — no sidecar app; configure from **Tools → Radio Output…** and drive from a dockable panel
+- **Icecast 2.x and SHOUTcast v1** servers
+- **MP3, Opus, and Vorbis** encoding (libmp3lame / libopus / libvorbis, bundled)
+- **TLS (HTTPS)** source connections — fails closed (no silent plaintext downgrade)
+- **"Now Playing" metadata** — push titles to your stream from the dock or remotely
+- **Live listener count** in the dock (Icecast `status-json` / SHOUTcast `7.html`)
+- **Auto-reconnect** on dropped connections, with configurable delay and retry limit
+- **Auto-start with OBS streaming** (optional) — radio piggybacks on Start/Stop Streaming, and a radio failure never blocks your video stream
+- **Remote control** via obs-websocket vendor requests (`radio.start` / `stop` / `status` / `pushMetadata` / `applyConfig` / `getListeners`)
+- **Color-coded connection status** (Disconnected / Connecting / Live / Reconnecting / Error)
+- macOS (Universal Binary), Windows (x64), and Linux (x86_64)
+
+See the **[User Guide](docs/USER-GUIDE.md)** for a step-by-step setup walkthrough and troubleshooting.
 
 ## Screenshots
 
@@ -169,6 +176,9 @@ config dialog, clicking OBS's main **Start Streaming** button will also
 auto-start the radio; **Stop Streaming** auto-stops it. Radio failures
 never block OBS video streaming. The dock's Start/Stop buttons remain
 fully functional for manual control regardless of the checkbox.
+
+For a step-by-step walkthrough (every field explained), the optional
+features, and a troubleshooting table, see the **[User Guide](docs/USER-GUIDE.md)**.
 
 ## Reporting Bugs
 
