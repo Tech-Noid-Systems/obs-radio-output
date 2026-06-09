@@ -54,7 +54,14 @@ static bool attempt_connect(struct radio_output *context)
 	if (context->encoder && context->encoder->on_reconnect) {
 		uint8_t *hdrs = NULL;
 		size_t hdr_len = 0;
-		if (context->encoder->on_reconnect(context, &hdrs, &hdr_len) < 0) {
+		/* Hold encoder_mutex across the full re-init.  The audio thread
+		 * (raw_audio) trylocks the same mutex and drops its callback while
+		 * we hold it, so it never encodes against a half-rebuilt encoder
+		 * state — the Vorbis reconnect crash that acceptance test #3 caught. */
+		pthread_mutex_lock(&context->encoder_mutex);
+		const int reinit_rc = context->encoder->on_reconnect(context, &hdrs, &hdr_len);
+		pthread_mutex_unlock(&context->encoder_mutex);
+		if (reinit_rc < 0) {
 			obs_log(LOG_ERROR, "[reconnect] encoder header re-emit failed for codec %s",
 				context->encoder->name);
 			/* fall through — keep the connection and cross fingers; a clean

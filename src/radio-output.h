@@ -72,6 +72,14 @@ struct radio_output {
 	radio_state_t state;
 	pthread_mutex_t state_mutex;
 
+	/* Serializes the audio thread's encode_frame (raw_audio) against the
+	 * reconnect thread's full encoder re-init (encoder->on_reconnect).  The
+	 * audio thread trylocks and DROPS its callback on contention rather than
+	 * block libobs's shared audio thread; reconnect holds it across the
+	 * re-init.  Without this, the audio thread can call vorbis_analysis_buffer
+	 * on a half-rebuilt Vorbis DSP state → null deref / crash. */
+	pthread_mutex_t encoder_mutex;
+
 	// Reconnect settings
 	bool reconnect_enabled;
 	int reconnect_delay_ms;

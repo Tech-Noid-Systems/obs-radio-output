@@ -101,6 +101,7 @@ struct radio_encoder_ops {
 
 extern const struct radio_encoder_ops radio_encoder_mp3;
 extern const struct radio_encoder_ops radio_encoder_opus;
+extern const struct radio_encoder_ops radio_encoder_vorbis;
 
 #ifdef __cplusplus
 }

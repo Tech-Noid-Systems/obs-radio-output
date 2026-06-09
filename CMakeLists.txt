@@ -141,6 +141,7 @@ target_sources(
     src/send-buf.h
     src/radio-encoder.h
     src/radio-opus-encoder.c
+    src/radio-vorbis-encoder.c
     src/ogg-opus-headers.c
     src/ogg-opus-headers.h
     src/reconnect.c
