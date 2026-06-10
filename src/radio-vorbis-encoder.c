@@ -72,6 +72,11 @@ struct vorbis_state {
 	/* Bumped on every reconnect and folded into the Ogg serial so
 	 * back-to-back reconnects never reuse a serial. */
 	unsigned int reconnect_epoch;
+
+	/* Current "Now Playing" title, emitted as a TITLE VorbisComment.  Empty
+	 * until the first metadata push; re-emitted on every header rebuild
+	 * (reconnect or metadata update) so rejoining listeners see it (#67). */
+	char title[256];
 };
 
 /*
@@ -173,6 +178,8 @@ static bool vorbis_setup_and_emit_headers(struct vorbis_state *st, int bitrate, 
 	vorbis_comment_init(&st->vc);
 	st->vc_initialized = true;
 	vorbis_comment_add_tag(&st->vc, "ENCODER", "obs-radio-output");
+	if (st->title[0])
+		vorbis_comment_add_tag(&st->vc, "TITLE", st->title);
 
 	if (vorbis_analysis_init(&st->vd, &st->vi) != 0) {
 		obs_log(LOG_ERROR, "vorbis_analysis_init failed");
@@ -331,6 +338,36 @@ static int vorbis_on_reconnect(struct radio_output *context, uint8_t **out_heade
 	return 0;
 }
 
+static int vorbis_update_metadata(struct radio_output *context, const char *title, uint8_t **out_bytes, size_t *out_len)
+{
+	struct vorbis_state *st = context->encoder_priv;
+	*out_bytes = NULL;
+	*out_len = 0;
+
+	if (!st) {
+		obs_log(LOG_ERROR, "[vorbis] update_metadata called without encoder state");
+		return -1;
+	}
+
+	/* Stash the title (re-emitted on later reconnects too), then chain a fresh
+	 * logical stream whose VorbisComment carries it.  Vorbis must fully rebuild
+	 * — audio packets reference the header codebook — so this is the same path
+	 * as on_reconnect, only triggered by a title change. */
+	snprintf(st->title, sizeof(st->title), "%s", title ? title : "");
+
+	vorbis_clear_state(st);
+	st->reconnect_epoch++;
+
+	if (!vorbis_setup_and_emit_headers(st, context->bitrate, out_bytes, out_len)) {
+		obs_log(LOG_ERROR, "[vorbis] failed to chain new stream for metadata update");
+		return -1;
+	}
+
+	obs_log(LOG_INFO, "[vorbis] in-band metadata: chained new Ogg stream with updated VorbisComment (%zu bytes)",
+		*out_len);
+	return 0;
+}
+
 static void vorbis_destroy(struct radio_output *context)
 {
 	struct vorbis_state *st = context->encoder_priv;
@@ -425,6 +462,7 @@ const struct radio_encoder_ops radio_encoder_vorbis = {
 	.flush = vorbis_flush,
 	.max_output_for = vorbis_max_output_for,
 	.on_reconnect = vorbis_on_reconnect,
+	.update_metadata = vorbis_update_metadata,
 };
 
 #else /* !HAVE_VORBIS — stub so the plugin still links when libvorbis is absent */
