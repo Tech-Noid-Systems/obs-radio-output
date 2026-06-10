@@ -33,6 +33,10 @@ typedef enum {
 /* Forward-declared; the full struct lives in radio-encoder.h. */
 struct radio_encoder_ops;
 
+/* Forward-declared; the full struct lives in radio-output.c (async initial
+ * connect, #61). */
+struct radio_connect_job;
+
 struct radio_output {
 	obs_output_t *output; // back-pointer to OBS output object
 #ifdef HAVE_LIBSHOUT
@@ -137,6 +141,13 @@ struct radio_output {
 	pthread_cond_t send_cond;
 	pthread_t send_thread;
 	volatile bool send_running;
+
+	/* Async initial-connect job (#61).  Set in radio_output_start (under
+	 * state_mutex) when the connect thread spawns; cleared — also under
+	 * state_mutex — by whichever of {connect-thread completion, teardown's
+	 * cancel} gets there first.  See struct radio_connect_job in
+	 * radio-output.c for the lifetime/cancellation contract. */
+	struct radio_connect_job *connect_job;
 #endif
 };
 

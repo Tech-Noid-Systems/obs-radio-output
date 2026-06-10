@@ -107,6 +107,10 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 	return context;
 }
 
+#ifdef HAVE_LIBSHOUT
+static void connect_cancel(struct radio_output *context);
+#endif
+
 /*
  * radio_output_teardown — idempotent teardown used by both the stop and
  * destroy callbacks.  Must be called before freeing the context itself.
@@ -131,6 +135,13 @@ static void radio_output_teardown(struct radio_output *context)
 		return;
 	}
 	pthread_mutex_unlock(&context->state_mutex);
+
+#ifdef HAVE_LIBSHOUT
+	/* Cancel any in-flight async connect FIRST so the connect thread can't
+	 * complete a start underneath this teardown.  Returns immediately —
+	 * never waits out a blocked shout_open (#61). */
+	connect_cancel(context);
+#endif
 
 	/* Stop the audio callback BEFORE freeing anything it touches. */
 	obs_output_end_data_capture(context->output);
@@ -385,6 +396,234 @@ static void send_buf_push(struct radio_output *context, const uint8_t *bytes, si
 		obs_log(LOG_WARNING, "send buffer full, dropped %zu bytes", dropped);
 	pthread_cond_signal(&context->send_cond);
 	pthread_mutex_unlock(&context->send_mutex);
+}
+
+/* -------------------------------------------------------------------------
+ * Async initial connect (#61)
+ *
+ * shout_open blocks — DNS, TCP connect, the libshout greeting, and (with TLS
+ * on) the full TLS handshake all run inside it; ~14 s observed against a
+ * server that silently eats the ClientHello.  radio_output_start runs on the
+ * Qt main thread (dock Start, Tools menu, the streaming auto-start handler,
+ * and the obs-websocket radio.start verb all marshal to it), so the open
+ * happens on a short-lived detached connect thread instead: start returns
+ * immediately with state CONNECTING and the thread finishes the start —
+ * publish the handle, begin data capture, stand up the send thread — when
+ * shout_open returns.  Failures surface via
+ * obs_output_signal_stop(OBS_OUTPUT_CONNECT_FAILED), the same channel the
+ * reconnect give-up path already uses.
+ *
+ * Cancellation: shout_open cannot be interrupted, so Stop must never wait
+ * for it.  The job below is refcounted — the connect thread and
+ * context->connect_job each hold one ref.  Teardown atomically takes the
+ * context's pointer (under state_mutex), flags the job canceled (under
+ * job->mutex), and moves on; the blocked open finishes in the background and
+ * hands an opened handle to shout_handoff_cleanup.  A canceled thread never
+ * touches the context again, so destroy can free it safely.  Conversely,
+ * while the thread holds job->mutex with canceled still false, teardown is
+ * blocked at the flag-set, which keeps the context alive for the entire
+ * completion.
+ * ---------------------------------------------------------------------- */
+
+struct radio_connect_job {
+	struct radio_output *context; /* read only while !canceled under mutex */
+	shout_t *shout;               /* configured + unopened at spawn; thread-owned */
+	uint8_t *startup_bytes;       /* container startup pages (Ogg headers); job-owned */
+	size_t startup_len;
+	pthread_mutex_t mutex; /* guards canceled/completed; serializes completion vs cancel */
+	bool canceled;
+	bool completed;
+	volatile long refs;
+};
+
+static void connect_job_release(struct radio_connect_job *job)
+{
+	if (os_atomic_dec_long(&job->refs) > 0)
+		return;
+	pthread_mutex_destroy(&job->mutex);
+	bfree(job);
+}
+
+static void log_shout_open_failure(struct radio_output *context, shout_t *shout, int err)
+{
+	/* Surface TLS-specific failures with actionable text rather than
+	 * libshout's generic error string, which often reads as an
+	 * opaque socket/TLS mashup.  SHOUTERR_NOTLS fires only when the
+	 * server cleanly signals "no TLS" via an HTTP response; plain
+	 * servers that silently eat a TLS ClientHello yield
+	 * SHOUTERR_SOCKET after a ~14s TLS handshake timeout, so when
+	 * use_tls is on and we hit any non-TLS-specific failure, add
+	 * a TLS-may-be-the-cause hint so the user knows what to try. */
+	if (err == SHOUTERR_NOTLS) {
+		obs_log(LOG_ERROR, "TLS requested but the server does not support it; "
+				   "either disable TLS in Tools → Radio Output… or use a TLS-capable server");
+	} else if (err == SHOUTERR_TLSBADCERT) {
+		obs_log(LOG_ERROR, "TLS certificate validation failed — server cert not trusted by the OS CA store, "
+				   "or hostname does not match cert CN/SAN");
+	} else if (context->use_tls) {
+		obs_log(LOG_ERROR,
+			"shout_open() failed with TLS enabled: %s. If the server does not speak TLS on "
+			"this port, uncheck 'Use TLS (HTTPS)' in Tools → Radio Output… and retry",
+			shout_get_error(shout));
+	} else {
+		obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(shout));
+	}
+}
+
+/*
+ * connect_complete — finish the start sequence after a successful shout_open:
+ * publish the handle, begin data capture, stand up the send thread, queue
+ * container startup bytes.  Mirrors the pre-async inline code that lived in
+ * radio_output_start.  Runs on the connect thread with job->mutex held and
+ * the context guaranteed alive.  Returns false with everything it created
+ * torn back down (the caller then signals OBS_OUTPUT_CONNECT_FAILED).
+ */
+static bool connect_complete(struct radio_output *context, shout_t *shout, const uint8_t *startup_bytes,
+			     size_t startup_len)
+{
+	context->shout = shout;
+	set_state(context, RADIO_STATE_CONNECTED);
+	context->reconnect_attempts = 0;
+	obs_log(LOG_INFO, "Connected to %s:%d%s", context->host, context->port, context->mount);
+
+	if (!obs_output_begin_data_capture(context->output, 0)) {
+		obs_log(LOG_ERROR, "obs_output_begin_data_capture() failed");
+		goto fail_after_open;
+	}
+
+	/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio;
+	 * radio_send_buf_init sets the data pointer last, so raw_audio's
+	 * send_buf.data "ready" gate only opens once the buffer is usable. */
+	context->send_running = true;
+	pthread_mutex_init(&context->send_mutex, NULL);
+	pthread_cond_init(&context->send_cond, NULL);
+	if (!radio_send_buf_init(&context->send_buf, SEND_BUF_CAPACITY)) {
+		obs_log(LOG_ERROR, "Failed to allocate send buffer");
+		context->send_running = false;
+		pthread_mutex_destroy(&context->send_mutex);
+		pthread_cond_destroy(&context->send_cond);
+		goto fail_after_capture;
+	}
+	if (pthread_create(&context->send_thread, NULL, encoder_send_thread, context) != 0) {
+		obs_log(LOG_ERROR, "Failed to create encoder send thread");
+		context->send_running = false;
+		radio_send_buf_free(&context->send_buf);
+		pthread_mutex_destroy(&context->send_mutex);
+		pthread_cond_destroy(&context->send_cond);
+		goto fail_after_capture;
+	}
+	obs_log(LOG_INFO, "Encoder send thread started (codec=%s)", context->encoder->name);
+
+	/* Queue container startup bytes (Ogg codecs: header pages) so the
+	 * send thread ships them before any audio.  MP3 has none. */
+	if (startup_bytes && startup_len > 0)
+		send_buf_push(context, startup_bytes, startup_len);
+
+	return true;
+
+fail_after_capture:
+	obs_output_end_data_capture(context->output);
+fail_after_open:
+	shout_close(context->shout);
+	shout_free(context->shout);
+	context->shout = NULL;
+	return false;
+}
+
+static void *connect_thread_fn(void *data)
+{
+	struct radio_connect_job *job = data;
+
+	const int err = shout_open(job->shout);
+
+	pthread_mutex_lock(&job->mutex);
+	if (job->canceled) {
+		/* Stop/destroy won the race; the context may already be freed.
+		 * Clean up only what the job owns. */
+		pthread_mutex_unlock(&job->mutex);
+		if (err == SHOUTERR_SUCCESS)
+			shout_handoff_cleanup(job->shout);
+		else
+			shout_free(job->shout);
+		bfree(job->startup_bytes);
+		connect_job_release(job);
+		return NULL;
+	}
+
+	/* Not canceled while holding job->mutex ⇒ teardown is blocked at its
+	 * cancel step, so the context stays alive for this whole block. */
+	struct radio_output *context = job->context;
+	bool ok = false;
+
+	if (err == SHOUTERR_SUCCESS) {
+		ok = connect_complete(context, job->shout, job->startup_bytes, job->startup_len);
+	} else {
+		log_shout_open_failure(context, job->shout, err);
+		shout_free(job->shout);
+	}
+
+	if (!ok) {
+		/* Mirror the synchronous failure path: drop the encoder under
+		 * encoder_mutex (a raw_audio callback could be in flight if
+		 * connect_complete failed after begin_data_capture), mark
+		 * ERROR so the dock shows red until the user acknowledges. */
+		pthread_mutex_lock(&context->encoder_mutex);
+		if (context->encoder) {
+			context->encoder->destroy(context);
+			context->encoder = NULL;
+		}
+		pthread_mutex_unlock(&context->encoder_mutex);
+		set_state(context, RADIO_STATE_ERROR);
+	}
+
+	/* Detach the job from the context.  The == check matters: teardown may
+	 * have already swapped the pointer out while waiting on job->mutex, in
+	 * which case the field ref is teardown's to drop, not ours. */
+	bool drop_field_ref = false;
+	pthread_mutex_lock(&context->state_mutex);
+	if (context->connect_job == job) {
+		context->connect_job = NULL;
+		drop_field_ref = true;
+	}
+	pthread_mutex_unlock(&context->state_mutex);
+
+	if (!ok)
+		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
+
+	job->completed = true;
+	pthread_mutex_unlock(&job->mutex);
+
+	bfree(job->startup_bytes);
+	if (drop_field_ref)
+		connect_job_release(job);
+	connect_job_release(job);
+	return NULL;
+}
+
+/*
+ * connect_cancel — detach and cancel any in-flight async connect.  Never
+ * waits out a blocked shout_open: the job is flagged canceled and the
+ * connect thread cleans up after itself in the background.  If the thread
+ * is mid-completion, the brief job->mutex wait here lets it finish, after
+ * which the caller (teardown) tears down the now-started output normally.
+ */
+static void connect_cancel(struct radio_output *context)
+{
+	pthread_mutex_lock(&context->state_mutex);
+	struct radio_connect_job *job = context->connect_job;
+	context->connect_job = NULL;
+	pthread_mutex_unlock(&context->state_mutex);
+	if (!job)
+		return;
+
+	pthread_mutex_lock(&job->mutex);
+	job->canceled = true;
+	const bool was_pending = !job->completed;
+	pthread_mutex_unlock(&job->mutex);
+
+	if (was_pending)
+		obs_log(LOG_INFO, "connect attempt canceled; any in-flight handshake is reaped in the background");
+	connect_job_release(job);
 }
 #endif /* HAVE_LIBSHOUT */
 
@@ -697,8 +936,8 @@ static bool radio_output_start(void *data)
 	}
 
 	/* --- Configure libshout --- */
-	context->shout = shout_new();
-	if (!context->shout) {
+	shout_t *shout = shout_new();
+	if (!shout) {
 		obs_log(LOG_ERROR, "shout_new() failed (out of memory?)");
 		context->encoder->destroy(context);
 		context->encoder = NULL;
@@ -707,38 +946,38 @@ static bool radio_output_start(void *data)
 		return false;
 	}
 
-	shout_apply_settings(context, context->shout);
+	shout_apply_settings(context, shout);
 
-	/* --- Open connection --- */
+	/* --- Open connection (async, #61) ---
+	 * shout_open blocks and this callback runs on the Qt main thread, so
+	 * the open happens on a short-lived detached connect thread.  State is
+	 * CONNECTING before the thread spawns so the dock's next poll shows it
+	 * without a DISCONNECTED flicker; the thread finishes the start (or
+	 * signals CONNECT_FAILED) when shout_open returns.  context->shout
+	 * stays NULL until the thread publishes the opened handle. */
 	set_state(context, RADIO_STATE_CONNECTING);
 
-	int err = shout_open(context->shout);
-	if (err != SHOUTERR_SUCCESS) {
-		/* Surface TLS-specific failures with actionable text rather than
-		 * libshout's generic error string, which often reads as an
-		 * opaque socket/TLS mashup.  SHOUTERR_NOTLS fires only when the
-		 * server cleanly signals "no TLS" via an HTTP response; plain
-		 * servers that silently eat a TLS ClientHello yield
-		 * SHOUTERR_SOCKET after a ~14s TLS handshake timeout, so when
-		 * use_tls is on and we hit any non-TLS-specific failure, add
-		 * a TLS-may-be-the-cause hint so the user knows what to try. */
-		if (err == SHOUTERR_NOTLS) {
-			obs_log(LOG_ERROR, "TLS requested but the server does not support it; "
-					   "either disable TLS in Tools → Radio Output… or use a TLS-capable server");
-		} else if (err == SHOUTERR_TLSBADCERT) {
-			obs_log(LOG_ERROR,
-				"TLS certificate validation failed — server cert not trusted by the OS CA store, "
-				"or hostname does not match cert CN/SAN");
-		} else if (context->use_tls) {
-			obs_log(LOG_ERROR,
-				"shout_open() failed with TLS enabled: %s. If the server does not speak TLS on "
-				"this port, uncheck 'Use TLS (HTTPS)' in Tools → Radio Output… and retry",
-				shout_get_error(context->shout));
-		} else {
-			obs_log(LOG_ERROR, "shout_open() failed: %s", shout_get_error(context->shout));
-		}
-		shout_free(context->shout);
-		context->shout = NULL;
+	struct radio_connect_job *job = bzalloc(sizeof(*job));
+	job->context = context;
+	job->shout = shout;
+	job->startup_bytes = startup_bytes;
+	job->startup_len = startup_len;
+	pthread_mutex_init(&job->mutex, NULL);
+	job->refs = 2; /* connect thread + context->connect_job */
+
+	pthread_mutex_lock(&context->state_mutex);
+	context->connect_job = job;
+	pthread_mutex_unlock(&context->state_mutex);
+
+	pthread_t connect_tid;
+	if (pthread_create(&connect_tid, NULL, connect_thread_fn, job) != 0) {
+		obs_log(LOG_ERROR, "Failed to create connect thread");
+		pthread_mutex_lock(&context->state_mutex);
+		context->connect_job = NULL;
+		pthread_mutex_unlock(&context->state_mutex);
+		pthread_mutex_destroy(&job->mutex);
+		bfree(job);
+		shout_free(shout);
 		context->encoder->destroy(context);
 		context->encoder = NULL;
 		bfree(startup_bytes);
@@ -746,61 +985,10 @@ static bool radio_output_start(void *data)
 		obs_output_signal_stop(context->output, OBS_OUTPUT_CONNECT_FAILED);
 		return false;
 	}
+	pthread_detach(connect_tid);
 
-	set_state(context, RADIO_STATE_CONNECTED);
-	context->reconnect_attempts = 0;
-	obs_log(LOG_INFO, "Connected to %s:%d%s", context->host, context->port, context->mount);
-
-	if (!obs_output_begin_data_capture(context->output, 0)) {
-		obs_log(LOG_ERROR, "obs_output_begin_data_capture() failed");
-		bfree(startup_bytes);
-		goto start_fail_after_open;
-	}
-
-	/* --- Start shared send thread (all codecs) --- */
-	/* Initialize mutex/cond BEFORE making send_buf visible to raw_audio;
-	 * radio_send_buf_init sets the data pointer last, so raw_audio's
-	 * send_buf.data "ready" gate only opens once the buffer is usable. */
-	context->send_running = true;
-	pthread_mutex_init(&context->send_mutex, NULL);
-	pthread_cond_init(&context->send_cond, NULL);
-	if (!radio_send_buf_init(&context->send_buf, SEND_BUF_CAPACITY)) {
-		obs_log(LOG_ERROR, "Failed to allocate send buffer");
-		context->send_running = false;
-		pthread_mutex_destroy(&context->send_mutex);
-		pthread_cond_destroy(&context->send_cond);
-		bfree(startup_bytes);
-		goto start_fail_after_capture;
-	}
-	if (pthread_create(&context->send_thread, NULL, encoder_send_thread, context) != 0) {
-		obs_log(LOG_ERROR, "Failed to create encoder send thread");
-		context->send_running = false;
-		radio_send_buf_free(&context->send_buf);
-		pthread_mutex_destroy(&context->send_mutex);
-		pthread_cond_destroy(&context->send_cond);
-		bfree(startup_bytes);
-		goto start_fail_after_capture;
-	}
-	obs_log(LOG_INFO, "Encoder send thread started (codec=%s)", context->encoder->name);
-
-	/* Queue container startup bytes (Opus: OpusHead + OpusTags pages) so
-	 * the send thread ships them before any audio.  MP3 has none. */
-	if (startup_bytes && startup_len > 0)
-		send_buf_push(context, startup_bytes, startup_len);
-	bfree(startup_bytes);
-
+	obs_log(LOG_INFO, "Connecting to %s:%d%s ...", context->host, context->port, context->mount);
 	return true;
-
-start_fail_after_capture:
-	obs_output_end_data_capture(context->output);
-start_fail_after_open:
-	shout_close(context->shout);
-	shout_free(context->shout);
-	context->shout = NULL;
-	context->encoder->destroy(context);
-	context->encoder = NULL;
-	set_state(context, RADIO_STATE_ERROR);
-	return false;
 #endif
 }
 
