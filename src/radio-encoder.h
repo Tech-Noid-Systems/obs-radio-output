@@ -97,6 +97,25 @@ struct radio_encoder_ops {
 	 * scratch buffer.  Must account for any pending internal buffering.
 	 */
 	size_t (*max_output_for)(struct radio_output *context, size_t frames);
+
+	/*
+	 * Optional (may be NULL).  In-band "Now Playing" metadata for container
+	 * codecs (issue #67).  Icecast discards admin/ICY metadata on Ogg mounts,
+	 * so Ogg codecs instead splice a new logical bitstream into the live
+	 * stream: end the current Ogg stream, start a fresh one (new serial) whose
+	 * OpusTags / VorbisComment carries the new title, and continue encoding
+	 * into it.  The encoder writes those chain bytes into a freshly bmalloc'd
+	 * buffer returned via out_bytes/out_len (caller frees with bfree) — same
+	 * ownership contract as init()/on_reconnect().  The compression context is
+	 * preserved where the codec allows (Opus keeps its OpusEncoder; Vorbis must
+	 * fully re-init because audio packets reference the header codebook).
+	 *
+	 * Called by radio_output_emit_inband_metadata under encoder_mutex (so it
+	 * can't race the audio thread's encode_frame), and only while CONNECTED.
+	 * Encoders that have no in-band metadata (MP3 — uses the libshout ICY/admin
+	 * path) leave this NULL.  Returns 0 on success, -1 on error.
+	 */
+	int (*update_metadata)(struct radio_output *context, const char *title, uint8_t **out_bytes, size_t *out_len);
 };
 
 extern const struct radio_encoder_ops radio_encoder_mp3;

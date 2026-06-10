@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 extern "C" {
 #include "ogg-opus-headers.h"
@@ -81,4 +82,44 @@ TEST_CASE("OpusTags reports 0 when the buffer is too small", "[opus][headers]")
 {
 	uint8_t tiny[4];
 	REQUIRE(opus_format_tags(tiny, sizeof(tiny), "obs-radio-output") == 0);
+}
+
+TEST_CASE("OpusTags titled is byte-identical to untitled for empty/NULL title", "[opus][headers]")
+{
+	const char *vendor = "obs-radio-output";
+	uint8_t a[64];
+	uint8_t b[64];
+	const size_t na = opus_format_tags(a, sizeof(a), vendor);
+	const size_t nb = opus_format_tags_titled(b, sizeof(b), vendor, "");
+	const size_t nc = opus_format_tags_titled(a, sizeof(a), vendor, nullptr);
+	REQUIRE(na == nb);
+	REQUIRE(nb == nc);
+	REQUIRE(std::memcmp(a, b, na) == 0);
+}
+
+TEST_CASE("OpusTags titled carries one TITLE comment (issue #67)", "[opus][headers]")
+{
+	const char *vendor = "obs-radio-output";
+	const size_t vendor_len = std::strlen(vendor);
+	const char *title = "Artist - Song";
+	const std::string comment = std::string("TITLE=") + title;
+
+	uint8_t tags[128];
+	const size_t n = opus_format_tags_titled(tags, sizeof(tags), vendor, title);
+
+	REQUIRE(n == 8 + 4 + vendor_len + 4 + 4 + comment.size());
+	REQUIRE(std::memcmp(tags, "OpusTags", 8) == 0);
+	REQUIRE(le32(tags + 8) == static_cast<uint32_t>(vendor_len));
+	// one user comment follows the vendor string
+	const size_t list_off = 12 + vendor_len;
+	REQUIRE(le32(tags + list_off) == 1u);
+	REQUIRE(le32(tags + list_off + 4) == static_cast<uint32_t>(comment.size()));
+	REQUIRE(std::memcmp(tags + list_off + 8, comment.data(), comment.size()) == 0);
+}
+
+TEST_CASE("OpusTags titled reports 0 when the buffer is too small for the comment", "[opus][headers]")
+{
+	// Enough for vendor + zero comments, but not the TITLE comment.
+	uint8_t buf[8 + 4 + 16 + 4];
+	REQUIRE(opus_format_tags_titled(buf, sizeof(buf), "obs-radio-output", "a long enough title") == 0);
 }

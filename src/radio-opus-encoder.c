@@ -74,6 +74,11 @@ struct opus_state {
 	/* Reconnect counter — xor'd into the Ogg serial on each reset so
 	 * back-to-back reconnects never collide on the same serial. */
 	unsigned int reconnect_epoch;
+
+	/* Current "Now Playing" title, emitted in OpusTags.  Empty until the
+	 * first metadata push; re-emitted on every container reset (reconnect or
+	 * metadata update) so a rejoining listener sees the live title (#67). */
+	char title[OPUS_TAGS_TITLE_MAX + 1];
 };
 
 /*
@@ -193,8 +198,9 @@ static bool emit_opus_container_headers(struct opus_state *st, uint8_t **out_hea
 	 * stack buffer is ample.  libogg copies the packet bytes in
 	 * ogg_stream_packetin, so the buffer needn't outlive this call.  Byte
 	 * layout lives in ogg-opus-headers.c. */
-	uint8_t tags[64];
-	const size_t tags_len = opus_format_tags(tags, sizeof(tags), "obs-radio-output");
+	/* Sized for the vendor string plus one full-length TITLE comment. */
+	uint8_t tags[8 + 4 + 16 + 4 + 4 + OPUS_TAGS_TITLE_MAX + 16];
+	const size_t tags_len = opus_format_tags_titled(tags, sizeof(tags), "obs-radio-output", st->title);
 
 	ogg_packet op_tags = {0};
 	op_tags.packet = tags;
@@ -300,26 +306,19 @@ static bool opus_init(struct radio_output *context, uint32_t sample_rate, int ch
 	return true;
 }
 
-static int opus_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+/*
+ * Start a fresh Ogg logical stream (new serial) and emit OpusHead + OpusTags
+ * into out_headers/out_bytes — the chaining primitive shared by reconnect and
+ * in-band metadata.  The OpusEncoder and the PCM accumulator are intentionally
+ * preserved (only the container is reset): perceptual state stays valid and any
+ * partial frame in st->accum continues into the new stream.  packetno/granulepos
+ * restart at 0, so a listener joining the new stream begins at gp=0.
+ */
+static int opus_restart_logical_stream(struct opus_state *st, uint8_t **out_headers, size_t *out_bytes)
 {
-	struct opus_state *st = context->encoder_priv;
 	*out_headers = NULL;
 	*out_bytes = 0;
 
-	if (!st) {
-		obs_log(LOG_ERROR, "[opus] on_reconnect called without encoder state");
-		return -1;
-	}
-
-	/* Reset the Ogg container.  Icecast treats the new source connection
-	 * as a fresh stream, so listeners need a BOS page with OpusHead before
-	 * they can decode.  A new serial is required — a logical stream
-	 * continues across pages only if its serial matches.
-	 *
-	 * The OpusEncoder itself (and the PCM accumulator) are intentionally
-	 * preserved: perceptual state like the pitch predictor and LPC
-	 * residuals is still valid across the TCP blip, and whatever partial
-	 * frame was in st->accum would otherwise be lost. */
 	if (st->os_initialized) {
 		ogg_stream_clear(&st->os);
 		st->os_initialized = false;
@@ -331,19 +330,58 @@ static int opus_on_reconnect(struct radio_output *context, uint8_t **out_headers
 	ogg_stream_init(&st->os, (int)serial);
 	st->os_initialized = true;
 
-	/* Restart the packet and granule counters for the new logical stream.
-	 * A listener joining this new stream has no idea the previous one
-	 * existed; from their POV playback begins at gp=0. */
 	st->packetno = 0;
 	st->granulepos = 0;
 
-	if (!emit_opus_container_headers(st, out_headers, out_bytes)) {
+	if (!emit_opus_container_headers(st, out_headers, out_bytes))
+		return -1;
+	return 0;
+}
+
+static int opus_on_reconnect(struct radio_output *context, uint8_t **out_headers, size_t *out_bytes)
+{
+	struct opus_state *st = context->encoder_priv;
+	*out_headers = NULL;
+	*out_bytes = 0;
+
+	if (!st) {
+		obs_log(LOG_ERROR, "[opus] on_reconnect called without encoder state");
+		return -1;
+	}
+
+	/* Icecast treats the new source connection as a fresh stream, so
+	 * listeners need a BOS page with OpusHead before they can decode. */
+	if (opus_restart_logical_stream(st, out_headers, out_bytes) != 0) {
 		obs_log(LOG_ERROR, "[opus] failed to re-emit container headers on reconnect");
 		return -1;
 	}
 
-	obs_log(LOG_INFO, "[opus] re-emitted Ogg container headers after reconnect (%zu bytes, serial 0x%08x)",
-		*out_bytes, (unsigned int)serial);
+	obs_log(LOG_INFO, "[opus] re-emitted Ogg container headers after reconnect (%zu bytes)", *out_bytes);
+	return 0;
+}
+
+static int opus_update_metadata(struct radio_output *context, const char *title, uint8_t **out_bytes, size_t *out_len)
+{
+	struct opus_state *st = context->encoder_priv;
+	*out_bytes = NULL;
+	*out_len = 0;
+
+	if (!st) {
+		obs_log(LOG_ERROR, "[opus] update_metadata called without encoder state");
+		return -1;
+	}
+
+	/* Stash the title so it survives a later reconnect's header re-emit, then
+	 * chain a new logical stream whose OpusTags carries it. */
+	snprintf(st->title, sizeof(st->title), "%s", title ? title : "");
+
+	if (opus_restart_logical_stream(st, out_bytes, out_len) != 0) {
+		obs_log(LOG_ERROR, "[opus] failed to chain new stream for metadata update");
+		return -1;
+	}
+
+	obs_log(LOG_INFO, "[opus] in-band metadata: chained new Ogg stream with updated OpusTags (%zu bytes)",
+		*out_len);
 	return 0;
 }
 
@@ -462,6 +500,7 @@ const struct radio_encoder_ops radio_encoder_opus = {
 	.flush = opus_flush,
 	.max_output_for = opus_max_output_for,
 	.on_reconnect = opus_on_reconnect,
+	.update_metadata = opus_update_metadata,
 };
 
 #else /* !HAVE_OPUS — stub so the plugin still links when libopus is absent */

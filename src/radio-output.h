@@ -224,6 +224,15 @@ struct radio_output *radio_output_get_active(void);
 void radio_output_set_listener_count(int count);
 int radio_output_get_listener_count(void);
 
+/*
+ * Emit in-band "Now Playing" metadata for container codecs (Opus/Vorbis, #67).
+ * Returns true if the active encoder has an in-band metadata path and accepted
+ * the title; false otherwise (the caller then falls back to the libshout
+ * ICY/admin metadata path used for MP3).  Defined in radio-output.c so it can
+ * reach the static send buffer and encoder_mutex.
+ */
+bool radio_output_emit_inband_metadata(struct radio_output *context, const char *title);
+
 #ifdef __cplusplus
 }
 #endif

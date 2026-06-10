@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "metadata.h"
+#include "radio-encoder.h"
 #include "radio-output.h"
 
 #include <plugin-support.h>
@@ -88,5 +89,13 @@ bool radio_output_update_metadata(const char *title)
 	struct radio_output *active = radio_output_get_active();
 	if (!active)
 		return false;
+
+	/* Container codecs (Opus/Vorbis) expose an update_metadata hook: Icecast
+	 * discards admin/ICY metadata on Ogg mounts, so the title is spliced into
+	 * the stream in-band instead (#67).  MP3 has no such hook and falls through
+	 * to the libshout ICY/admin path, which works for it. */
+	if (active->encoder && active->encoder->update_metadata)
+		return radio_output_emit_inband_metadata(active, title);
+
 	return metadata_update(active, title) == 0;
 }

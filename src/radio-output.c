@@ -388,6 +388,52 @@ static void send_buf_push(struct radio_output *context, const uint8_t *bytes, si
 }
 #endif /* HAVE_LIBSHOUT */
 
+/*
+ * In-band "Now Playing" metadata for container codecs (Opus/Vorbis, #67).
+ * Icecast discards admin/ICY metadata on Ogg mounts, so the encoder chains a
+ * new Ogg logical stream whose OpusTags / VorbisComment carries the title; we
+ * ship those bytes through the ring buffer so they interleave with the audio.
+ *
+ * Runs under encoder_mutex — the same lock encode_frame trylocks — so the
+ * container reset can't race an in-flight audio encode.  Acts only while
+ * CONNECTED.  Returns false (no-op) when the active codec has no in-band path
+ * (MP3) or we're not streaming; the caller then uses the libshout path.
+ */
+bool radio_output_emit_inband_metadata(struct radio_output *context, const char *title)
+{
+#ifndef HAVE_LIBSHOUT
+	UNUSED_PARAMETER(context);
+	UNUSED_PARAMETER(title);
+	return false;
+#else
+	if (!context || !context->encoder || !context->encoder->update_metadata)
+		return false;
+
+	pthread_mutex_lock(&context->state_mutex);
+	bool connected = (context->state == RADIO_STATE_CONNECTED);
+	pthread_mutex_unlock(&context->state_mutex);
+	if (!connected) {
+		obs_log(LOG_WARNING, "metadata update failed: not connected");
+		return false;
+	}
+
+	uint8_t *bytes = NULL;
+	size_t len = 0;
+	pthread_mutex_lock(&context->encoder_mutex);
+	int rc = context->encoder->update_metadata(context, title, &bytes, &len);
+	pthread_mutex_unlock(&context->encoder_mutex);
+
+	if (rc != 0) {
+		bfree(bytes);
+		return false;
+	}
+	if (bytes && len)
+		send_buf_push(context, bytes, len);
+	bfree(bytes);
+	return true;
+#endif
+}
+
 /* -------------------------------------------------------------------------
  * MP3 encoder vtable (libmp3lame)
  *
