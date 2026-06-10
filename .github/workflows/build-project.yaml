@@ -206,8 +206,13 @@ jobs:
   ubuntu-build:
     name: Build for Ubuntu 🐧
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
     runs-on: ${{ matrix.os }}
     needs: check-event
     defaults:
@@ -252,27 +257,27 @@ jobs:
         id: ccache-cache
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-${{ matrix.os }}-ccache-${{ matrix.arch }}-${{ needs.check-event.outputs.config }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-
+            ${{ runner.os }}-${{ matrix.os }}-ccache-${{ matrix.arch }}-
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
         with:
-          target: x86_64
+          target: ${{ matrix.arch }}
           config: ${{ needs.check-event.outputs.config }}
 
       - name: Run Unit Tests 🧪
         shell: bash
         run: |
           : Run Unit Tests 🧪
-          cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target radio-tests
-          ctest --test-dir build_x86_64 --build-config ${{ needs.check-event.outputs.config }} --output-on-failure
+          cmake --build build_${{ matrix.arch }} --config ${{ needs.check-event.outputs.config }} --target radio-tests
+          ctest --test-dir build_${{ matrix.arch }} --build-config ${{ needs.check-event.outputs.config }} --output-on-failure
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
         with:
-          target: x86_64
+          target: ${{ matrix.arch }}
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
@@ -285,21 +290,21 @@ jobs:
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-${{ matrix.arch }}-${{ needs.check-event.outputs.commitHash }}
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.arch }}*.*
 
       - name: Upload debug symbol artifacts 🪲
         uses: actions/upload-artifact@v4
         if: ${{ fromJSON(needs.check-event.outputs.package) }}
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}-dbgsym
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*-dbgsym.ddeb
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-${{ matrix.arch }}-${{ needs.check-event.outputs.commitHash }}-dbgsym
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.arch }}*-dbgsym.ddeb
 
       - uses: actions/cache/save@v4
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-${{ matrix.os }}-ccache-${{ matrix.arch }}-${{ needs.check-event.outputs.config }}
 
   windows-build:
     name: Build for Windows 🪟
