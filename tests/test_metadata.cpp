@@ -65,10 +65,18 @@ const char *shout_get_error(shout_t *self)
 }
 
 // metadata.c also defines radio_output_update_metadata(), which references
-// this; never called from the tests but must resolve at link time.
+// these two; never called from the tests (radio_output_get_active returns
+// nullptr) but must resolve at link time.
 struct radio_output *radio_output_get_active(void)
 {
 	return nullptr;
+}
+
+bool radio_output_emit_inband_metadata(struct radio_output *context, const char *title)
+{
+	(void)context;
+	(void)title;
+	return false;
 }
 }
 
