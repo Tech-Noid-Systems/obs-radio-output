@@ -1,0 +1,47 @@
+# SPIKE (issue #37): prove stock libshout 2.4.6 builds as an MSVC static lib
+# against vcpkg ogg/vorbis/openssl/pthreads on the Windows runner. Throwaway —
+# delete this branch + workflow once the question is answered.
+name: spike-win-libshout
+
+on:
+  push:
+    branches: [spike/win-libshout]
+  workflow_dispatch:
+
+jobs:
+  build-libshout-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download + extract libshout 2.4.6 source
+        shell: pwsh
+        run: |
+          curl.exe -sSL https://downloads.xiph.org/releases/libshout/libshout-2.4.6.tar.gz -o libshout.tar.gz
+          tar -xzf libshout.tar.gz
+          Get-ChildItem libshout-2.4.6/src/*.c | Select-Object -First 3 Name
+
+      - name: Configure (MSVC + vcpkg deps)
+        shell: pwsh
+        run: |
+          $src = (Resolve-Path libshout-2.4.6).Path -replace '\\','/'
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -replace '\\','/'
+          cmake -S spike/win-libshout -B build-spike -A x64 `
+            "-DLIBSHOUT_SRC=$src" `
+            "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+            "-DVCPKG_TARGET_TRIPLET=x64-windows"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-spike --config Release --verbose
+
+      - name: Verify shout.lib was produced
+        shell: pwsh
+        run: |
+          $lib = Get-ChildItem -Recurse -Filter shout.lib build-spike | Select-Object -First 1
+          if ($lib) {
+            "✅ shout.lib built: $($lib.FullName) ($([math]::Round($lib.Length/1KB)) KB)"
+          } else {
+            Write-Error "❌ shout.lib was NOT produced"
+            exit 1
+          }
