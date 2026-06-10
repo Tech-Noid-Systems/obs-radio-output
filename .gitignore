@@ -11,6 +11,7 @@
 !/deps
 !/docs
 !/scripts
+!/spike
 !/src
 !/tests
 !.clang-format

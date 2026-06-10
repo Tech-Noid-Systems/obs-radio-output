@@ -1,0 +1,11 @@
+{
+  "name": "libshout-msvc-spike",
+  "version-string": "0.0.0",
+  "description": "Spike: build stock libshout 2.4.6 as an MSVC static lib (issue #37).",
+  "dependencies": [
+    "libogg",
+    "libvorbis",
+    "openssl",
+    "pthreads"
+  ]
+}
