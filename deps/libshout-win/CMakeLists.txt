@@ -101,6 +101,9 @@ target_link_libraries(
 )
 
 # Install layout consumed by the plugin's FindLibShout.cmake: <prefix>/lib/shout.lib
-# + <prefix>/include/shout/shout.h.
+# + <prefix>/include/shout/shout.h.  os.h must ship alongside — the public
+# shout.h does `#include <os.h>`, so consumers (the plugin) need it on the
+# include path too, not just the libshout build.
 install(TARGETS shout ARCHIVE DESTINATION lib)
 install(FILES "${CMAKE_BINARY_DIR}/include/shout/shout.h" DESTINATION include/shout)
+install(FILES "${LIBSHOUT_SRC}/include/os.h" DESTINATION include)
