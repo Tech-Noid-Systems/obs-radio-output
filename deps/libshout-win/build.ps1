@@ -46,17 +46,15 @@ if ( $actual -ne $Sha256 ) { throw "libshout tarball SHA256 mismatch: expected $
 
 Write-Host "==> Extracting + patching"
 tar -xzf $Tarball -C $Work
-# Apply windows-msvc.patch with GNU patch (ships with Git for Windows). -p1
-# strips the a//b/ prefix. Resolve patch.exe explicitly — Git's usr/bin is not
-# always on the runner PATH.
-$patchExe = (Get-Command patch -ErrorAction SilentlyContinue).Source
-if ( -not $patchExe ) {
-    $gitDir = Split-Path (Split-Path (Get-Command git).Source)
-    $patchExe = Join-Path $gitDir 'usr/bin/patch.exe'
-}
-if ( -not (Test-Path $patchExe) ) { throw "GNU patch not found (looked for $patchExe)" }
-Push-Location $Src
-& $patchExe -p1 -i "$Here/windows-msvc.patch"
+# Apply windows-msvc.patch with `git apply` rather than Git-for-Windows'
+# patch.exe — the latter is a ported GNU patch 2.5.9 that aborts with
+# "Assertation failed!" on this runner. git apply is reliable and always
+# present. -p1 strips the a//b/ prefix; --directory re-roots onto the extracted
+# tree. Run from the repo root (valid work-tree context) with a relative
+# directory so git accepts the in-tree target.
+$relSrc = [System.IO.Path]::GetRelativePath($RepoRoot, $Src) -replace '\\', '/'
+Push-Location $RepoRoot
+git apply -p1 --directory="$relSrc" "$Here/windows-msvc.patch"
 if ( $LASTEXITCODE -ne 0 ) { throw 'failed to apply windows-msvc.patch' }
 Pop-Location
 
