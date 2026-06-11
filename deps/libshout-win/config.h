@@ -19,10 +19,17 @@
 #define LIBSHOUT_MSVC_CONFIG_H
 
 /* POSIX → MSVC shims reaching every TU (config.h is force-included first via
- * HAVE_CONFIG_H).  getpid() (proto_roaraudio.c) is _getpid() from <process.h>;
- * clang-cl rejects the implicit declaration outright (C99+). */
+ * HAVE_CONFIG_H).  clang-cl rejects implicit declarations of these POSIX names
+ * outright (C99+), so map them to their MSVC equivalents here rather than in
+ * compat.h (which only a subset of TUs include).  _getpid lives in <process.h>;
+ * the str* equivalents are declared by <string.h>, which each .c includes. */
 #include <process.h>
 #define getpid _getpid
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#ifndef strdup
+#define strdup _strdup
+#endif
 
 /* Version (autotools derives these from configure.ac's libshout_{major,minor,micro};
  * shout.c reads them in shout_get_library_version). */

@@ -24,15 +24,10 @@
 /* ssize_t: match libshout's own include/os.h (`typedef int ssize_t`), which the
  * public <shout/shout.h> already pulls into every TU.  Using the SAME type makes
  * this a legal identical typedef redefinition (C11 §6.7) regardless of include
- * order — defining it as a different width (e.g. SSIZE_T) trips C2371. */
+ * order — defining it as a different width (e.g. SSIZE_T) trips C2371.
+ * (POSIX function name mappings — strcasecmp etc. — live in config.h so they
+ * reach every TU, not just the ones that include this header.) */
 typedef int ssize_t;
-
-/* POSIX names libshout calls (encoding.c, util.c) → MSVC equivalents. */
-#define strcasecmp _stricmp
-#define strncasecmp _strnicmp
-#ifndef strdup
-#define strdup _strdup
-#endif
 #endif /* _MSC_VER */
 
 #endif /* _WIN32 */
