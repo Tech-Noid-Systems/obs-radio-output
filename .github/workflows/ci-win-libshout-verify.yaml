@@ -1,0 +1,22 @@
+# TEMPORARY (issue #37): iterate the vendored MSVC libshout build in isolation,
+# fast, without the full plugin build. Removed once deps/libshout-win/build.ps1
+# is wired into the real windows-build job in build-project.yaml.
+name: ci-win-libshout-verify
+
+on:
+  push:
+    branches: [feat/windows-libshout-vendor]
+  workflow_dispatch:
+
+jobs:
+  build-libshout-msvc:
+    name: Verify vendored libshout builds under MSVC 🪟
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build vendored libshout
+        run: ./deps/libshout-win/build.ps1

@@ -24,9 +24,13 @@
 !cliff.toml
 !LICENSE
 !README.md
+!vcpkg.json
 
 # Exclude generated local dev helpers
 /build-and-install-macos.sh
+
+# Exclude Windows dependency build output (deps/libshout-win/build.ps1)
+/build-deps
 
 # Exclude clang-tidy local build directory
 /build-tidy
