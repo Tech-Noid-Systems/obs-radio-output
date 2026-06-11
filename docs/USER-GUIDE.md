@@ -67,7 +67,14 @@ Open **Tools → Radio Output…**.
 | Field | What to enter |
 |-------|---------------|
 | **Codec** | **MP3** (universally compatible), **Opus** (efficient, modern players; requires OBS audio at 48 kHz), or **Vorbis** (Ogg). SHOUTcast v1 only carries MP3. |
-| **Bitrate** | 128 kbps is a good default for music. Higher = better quality + more bandwidth. |
+| **Channel Mode** | MP3 only. **Stereo**, **Joint Stereo**, or **Mono** (downmixes L+R). Opus and Vorbis always stream stereo. |
+| **Bitrate Mode** | MP3 only. **CBR** (constant — safest for radio servers), **ABR** (average), or **VBR** (quality-driven). Picking VBR swaps the Bitrate row for a **VBR Quality** selector plus optional **min/max bitrate** bounds. |
+| **Bitrate (kbps)** | 128 kbps is a good default for music. Higher = better quality + more bandwidth. (CBR/ABR modes.) |
+| **Encoding Quality** | MP3 only. LAME's quality dial, **0** (best, slowest) to **9** (fastest). The default **2** is right for almost everyone. |
+| **Stream Samplerate** | **Match OBS (default)** streams at whatever OBS runs at. Pick **44100** or **48000 Hz** to resample — useful when your station's pipeline expects one specific rate. MP3 only (built-in resampler); Opus is always 48 kHz and Vorbis follows the OBS rate. |
+
+If you're coming from BUTT: these map 1:1 to BUTT's *Streaming Codec Settings* —
+copy your values across and the stream comes out the same.
 
 **Auto-Reconnect** — if enabled, the plugin retries dropped connections. Set the **Delay**
 (seconds between attempts) and **Max Retry Attempts**. After the last attempt the output
@@ -92,7 +99,7 @@ your layout.
 Click **Start**. The status label walks through the connection states:
 
 <p align="center">
-  <img src="images/status-states.png" width="800" alt="Connection states: Disconnected (grey), Live (green), Reconnecting (orange), Error (red)">
+  <img src="images/status-states.png" width="800" alt="Connection states: Disconnected (grey), Connecting (amber), Live (green), Reconnecting (orange), Error (red)">
 </p>
 
 | Status | Color | Meaning |

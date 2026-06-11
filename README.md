@@ -23,7 +23,7 @@ See the **[User Guide](docs/USER-GUIDE.md)** for a step-by-step setup walkthroug
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/config-dialog.png" width="600" alt="Tools → Radio Output… configuration dialog showing server, codec, and bitrate settings">
+  <img src="docs/images/config-dialog.png" width="500" alt="Tools → Radio Output… configuration dialog showing server, audio (codec, channel mode, bitrate mode, quality, samplerate), auto-reconnect, and OBS integration settings">
   <br>
   <em>Configuration dialog — <strong>Tools → Radio Output…</strong></em>
 </p>
@@ -35,9 +35,9 @@ See the **[User Guide](docs/USER-GUIDE.md)** for a step-by-step setup walkthroug
 </p>
 
 <p align="center">
-  <img src="docs/images/status-states.png" width="800" alt="Dock connection states: Disconnected, Live, Reconnecting, Error">
+  <img src="docs/images/status-states.png" width="800" alt="Dock connection states: Disconnected, Connecting, Live, Reconnecting, Error">
   <br>
-  <em>Color-coded connection states: Disconnected, Live, Reconnecting…, Error</em>
+  <em>Color-coded connection states: Disconnected, Connecting…, Live, Reconnecting…, Error</em>
 </p>
 
 ## Installation
@@ -99,7 +99,7 @@ xcodebuild -project build_macos/obs-radio-output.xcodeproj \
 cmake --install build_macos --config RelWithDebInfo \
       --prefix release/RelWithDebInfo
 
-cp -r release/RelWithDebInfo/obs-radio-output \
+cp -r release/RelWithDebInfo/obs-radio-output.plugin \
       ~/Library/Application\ Support/obs-studio/plugins/
 ```
 
@@ -155,16 +155,18 @@ cmake --install build_x64 --config RelWithDebInfo `
 ```
 
 > **Note:** Streaming to Icecast/SHOUTcast is not yet functional on Windows. The plugin will
-> load in OBS but the streaming output requires MSVC-compatible libshout binaries (tracked as
-> a known issue — contributions welcome).
+> load in OBS but the streaming output requires MSVC-compatible libshout binaries — tracked as
+> [#37](https://github.com/tech-noid-systems/obs-radio-output/issues/37), contributions welcome.
 
 ## Usage
 
 **One-time configuration:** **Tools → Radio Output…**. Enter your Icecast
-server hostname, port, mount point, and password. Pick codec (MP3 / Opus)
-and bitrate. Optionally enable "Start/stop radio with OBS streaming" if
-you want the radio to piggyback on OBS's main Start/Stop Streaming
-button. Click **OK** — settings persist across OBS restarts.
+server hostname, port, mount point, and password. Pick a codec (MP3 / Opus /
+Vorbis) and bitrate — MP3 also exposes channel mode, CBR/ABR/VBR, encoding
+quality, and a stream-samplerate selector for BUTT-parity control. Optionally
+enable "Start/stop radio with OBS streaming" if you want the radio to
+piggyback on OBS's main Start/Stop Streaming button. Click **OK** — settings
+persist across OBS restarts.
 
 **Running a broadcast:** open the **Radio Output** dock (**View → Docks
 → Radio Output**). The dock shows connection status and has **Start** /
