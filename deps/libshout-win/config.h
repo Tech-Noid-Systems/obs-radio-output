@@ -53,11 +53,15 @@
 #define HAVE_SYS_TIMEB_H 1
 #define HAVE_FTIME 1
 
-/* Networking — winsock2, not BSD sockets */
+/* Networking — winsock2, not BSD sockets.
+ * NB: deliberately NOT defining HAVE_INET_PTON.  sock.h turns
+ * `#define inet_aton(a,b) inet_pton(...)` on when (!HAVE_INET_ATON &&
+ * HAVE_INET_PTON), which then mangles sock.h's own `int inet_aton(...)` Windows
+ * prototype (sock.c provides that impl).  The canonical win32/libshout.dsp
+ * doesn't define it either. */
 #define HAVE_WINSOCK2_H 1
 #define HAVE_GETADDRINFO 1
 #define HAVE_GETNAMEINFO 1
-#define HAVE_INET_PTON 1
 #define HAVE_SOCKLEN_T 1
 #define HAVE_STRUCT_SOCKADDR_STORAGE_SS_FAMILY 1
 

@@ -19,19 +19,14 @@
  * winsock2.h first. */
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <BaseTsd.h> /* SSIZE_T */
-
-/* MSVC has no ssize_t; SSIZE_T is the Win32 SDK's signed size type (64-bit on
- * x64, matching POSIX ssize_t semantics).  Coordinate with PThreads4W / CRT
- * headers that may also define it: check (and set) every common guard so
- * whichever header is included first wins and the other skips. */
-#if !defined(_SSIZE_T_DEFINED) && !defined(_SSIZE_T_) && !defined(__ssize_t_defined)
-#define _SSIZE_T_DEFINED
-#define _SSIZE_T_
-typedef SSIZE_T ssize_t;
-#endif
 
 #ifdef _MSC_VER
+/* ssize_t: match libshout's own include/os.h (`typedef int ssize_t`), which the
+ * public <shout/shout.h> already pulls into every TU.  Using the SAME type makes
+ * this a legal identical typedef redefinition (C11 §6.7) regardless of include
+ * order — defining it as a different width (e.g. SSIZE_T) trips C2371. */
+typedef int ssize_t;
+
 /* POSIX names libshout calls (encoding.c, util.c) → MSVC equivalents. */
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
