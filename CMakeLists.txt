@@ -27,17 +27,31 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE
 
 if(WIN32)
   # libshout on Windows is the vendored MSVC static build (deps/libshout-win,
-  # issue #37).  Being a static archive it leaves its openssl/ogg/vorbis/pthreads/
-  # winsock symbols unresolved, so the plugin links them too — all from vcpkg
-  # (x64-windows-static-md), same as the libshout build itself.
+  # issue #37).  Its install prefix (LibShout_ROOT) is self-contained: shout.lib
+  # plus the bundled vcpkg static deps (openssl/ogg/vorbis/pthreads).  shout.lib
+  # is a static archive that leaves those symbols unresolved, so the plugin links
+  # them from the same prefix — no vcpkg toolchain needed in the plugin build.
   find_package(LibShout REQUIRED)
-  find_package(OpenSSL REQUIRED)
-  find_package(Ogg CONFIG REQUIRED)
-  find_package(Vorbis CONFIG REQUIRED)
-  find_library(PTHREADS_LIBRARY NAMES pthreadVC3 pthreadVC2 pthread REQUIRED)
+  set(_libshout_lib "${LibShout_ROOT}/lib")
+  find_library(RADIO_SSL_LIBRARY NAMES libssl ssl PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_CRYPTO_LIBRARY NAMES libcrypto crypto PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_OGG_LIBRARY NAMES ogg PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_VORBIS_LIBRARY NAMES vorbis PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_PTHREADS_LIBRARY NAMES pthreadVC3 pthreadVC2 PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
   target_link_libraries(
     ${CMAKE_PROJECT_NAME}
-    PRIVATE LibShout::LibShout OpenSSL::SSL OpenSSL::Crypto Ogg::ogg Vorbis::vorbis ${PTHREADS_LIBRARY} ws2_32 crypt32
+    PRIVATE
+      LibShout::LibShout
+      ${RADIO_SSL_LIBRARY}
+      ${RADIO_CRYPTO_LIBRARY}
+      ${RADIO_OGG_LIBRARY}
+      ${RADIO_VORBIS_LIBRARY}
+      ${RADIO_PTHREADS_LIBRARY}
+      ws2_32
+      crypt32
+      bcrypt
+      user32
+      advapi32
   )
   target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
 else()

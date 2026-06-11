@@ -92,6 +92,18 @@ if ( -not (Test-Path $Lib) ) { throw "shout.lib not produced at $Lib" }
 $kb = [math]::Round((Get-Item $Lib).Length / 1KB)
 Write-Host "==> shout.lib installed: $Lib ($kb KB)"
 
+# Bundle the vcpkg static dep libs (openssl/ogg/vorbis/pthreads) into the same
+# prefix.  shout.lib is a static archive that leaves those symbols unresolved;
+# bundling them lets the plugin link everything from one prefix WITHOUT pulling
+# the vcpkg toolchain into the plugin build (which fights the OBS template's
+# obs-deps discovery).  See the WIN32 branch in the top-level CMakeLists.txt.
+$VcpkgLib = Join-Path $BuildDir 'vcpkg_installed/x64-windows-static-md/lib'
+if ( -not (Test-Path $VcpkgLib) ) { throw "vcpkg install libs not found at $VcpkgLib" }
+$destLib = Join-Path $InstallPrefix 'lib'
+Copy-Item "$VcpkgLib/*.lib" $destLib -Force
+Write-Host "==> bundled vcpkg dep libs into ${destLib}:"
+Get-ChildItem "$destLib/*.lib" | ForEach-Object { Write-Host "     $($_.Name)" }
+
 # TLS sanity check: shout_tls_new only exists when HAVE_OPENSSL compiled in
 # (tls.c wraps its body in #ifdef HAVE_OPENSSL).  Analogous to the macOS build's
 # nm grep.  dumpbin isn't on the bare-pwsh PATH (it needs the VS dev env), so

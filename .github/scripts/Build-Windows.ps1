@@ -47,21 +47,16 @@ function Build {
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
-    # Build the vendored MSVC libshout (issue #37) + its vcpkg ogg/vorbis/openssl/
-    # pthreads deps, then point the plugin at the install prefix.  Replaces the old
-    # MinGW libshout, which couldn't link into the MSVC plugin (CRT/ABI mismatch).
+    # Build the vendored MSVC libshout (issue #37); it installs a self-contained
+    # prefix carrying shout.lib + its bundled vcpkg ogg/vorbis/openssl/pthreads
+    # static libs.  The plugin links it all from that prefix via -DLibShout_ROOT,
+    # with NO vcpkg toolchain (which would fight the OBS template's obs-deps
+    # discovery).  Replaces the old MinGW libshout (CRT/ABI-incompatible with MSVC).
     $LibShoutPrefix = "${ProjectRoot}/build-deps/libshout"
     Log-Group "Building vendored libshout..."
     Invoke-External pwsh -NoProfile -File "${ProjectRoot}/deps/libshout-win/build.ps1" -InstallPrefix $LibShoutPrefix
 
-    $VcpkgToolchain = "$Env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-    $CmakeArgs = @(
-        '--preset', "windows-ci-${Target}"
-        "-DCMAKE_TOOLCHAIN_FILE=${VcpkgToolchain}"
-        '-DVCPKG_TARGET_TRIPLET=x64-windows-static-md'
-        "-DVCPKG_MANIFEST_DIR=${ProjectRoot}"
-        "-DLibShout_ROOT=${LibShoutPrefix}"
-    )
+    $CmakeArgs = @('--preset', "windows-ci-${Target}", "-DLibShout_ROOT=${LibShoutPrefix}")
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 
