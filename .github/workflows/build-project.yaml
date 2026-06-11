@@ -308,8 +308,6 @@ jobs:
     defaults:
       run:
         shell: pwsh
-    env:
-      LIBSHOUT_ROOT: C:\msys64\mingw64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -348,14 +346,8 @@ jobs:
           "pluginName=${ProductName}" >> $env:GITHUB_OUTPUT
           "pluginVersion=${ProductVersion}" >> $env:GITHUB_OUTPUT
 
-      - name: Set Up MSYS2 and libshout 🪟
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: false
-          install: >-
-            mingw-w64-x86_64-libshout
-            mingw-w64-x86_64-pkg-config
+      # libshout is now built from source by the plugin build itself
+      # (deps/libshout-win/build.ps1, via Build-Windows.ps1) — no MinGW/MSYS2.
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin

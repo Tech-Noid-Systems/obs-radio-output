@@ -26,15 +26,20 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/deps/obs-websocket-api")
 
 if(WIN32)
-  # MSVC cannot link MinGW-built libraries; make libshout optional on Windows
-  # until MSVC-compatible binaries are available.
-  find_package(LibShout QUIET)
-  if(LibShout_FOUND)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
-    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
-  else()
-    message(WARNING "LibShout not found — Windows streaming support requires libshout at build time")
-  endif()
+  # libshout on Windows is the vendored MSVC static build (deps/libshout-win,
+  # issue #37).  Being a static archive it leaves its openssl/ogg/vorbis/pthreads/
+  # winsock symbols unresolved, so the plugin links them too — all from vcpkg
+  # (x64-windows-static-md), same as the libshout build itself.
+  find_package(LibShout REQUIRED)
+  find_package(OpenSSL REQUIRED)
+  find_package(Ogg CONFIG REQUIRED)
+  find_package(Vorbis CONFIG REQUIRED)
+  find_library(PTHREADS_LIBRARY NAMES pthreadVC3 pthreadVC2 pthread REQUIRED)
+  target_link_libraries(
+    ${CMAKE_PROJECT_NAME}
+    PRIVATE LibShout::LibShout OpenSSL::SSL OpenSSL::Crypto Ogg::ogg Vorbis::vorbis ${PTHREADS_LIBRARY} ws2_32 crypt32
+  )
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
 else()
   find_package(LibShout REQUIRED)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
