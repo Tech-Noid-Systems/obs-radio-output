@@ -63,12 +63,16 @@ $SrcFwd = $Src -replace '\\', '/'
 $PrefixFwd = $InstallPrefix -replace '\\', '/'
 $BuildDir = Join-Path $RepoRoot 'build-deps/_libshout-build'
 
-Write-Host "==> Configuring (MSVC + vcpkg static-md deps)"
+Write-Host "==> Configuring (clang-cl + vcpkg static-md deps)"
+# -T ClangCL: build libshout with clang-cl, not cl. libshout's sources use the
+# GCC void-pointer-arithmetic extension (e.g. encoding.c's `void *buf` + offset),
+# which cl rejects (C2036) but clang-cl accepts (a warning, not an error) while
+# still emitting MSVC-ABI objects that link cleanly into the cl-built plugin.
 # VCPKG_MANIFEST_DIR points at the repo root so manifest mode installs the
 # ogg/vorbis/openssl/pthreads declared in the root vcpkg.json (the libshout
 # build source dir has no manifest of its own).
 $RepoRootFwd = $RepoRoot -replace '\\', '/'
-cmake -S "$Here" -B "$BuildDir" -A x64 `
+cmake -S "$Here" -B "$BuildDir" -A x64 -T ClangCL `
     "-DLIBSHOUT_SRC=$SrcFwd" `
     "-DCMAKE_TOOLCHAIN_FILE=$Toolchain" `
     "-DVCPKG_TARGET_TRIPLET=x64-windows-static-md" `
