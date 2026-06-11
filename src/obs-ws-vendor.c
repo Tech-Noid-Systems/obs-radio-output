@@ -183,7 +183,10 @@ static void ui_run_apply(void *param)
 	t->result = frontend_wire_apply_config(t->patch);
 }
 
-/* radio.start — create + start the radio output (UI thread). Response: ok (bool). */
+/* radio.start — create + start the radio output (UI thread). Response: ok (bool).
+ * ok=true means the start was initiated; the connection itself completes
+ * asynchronously on a connect thread (#61) — poll radio.status for
+ * connecting → connected|error. */
 static void radio_start_request_cb(obs_data_t *request_data, obs_data_t *response_data, void *priv_data)
 {
 	UNUSED_PARAMETER(request_data);
