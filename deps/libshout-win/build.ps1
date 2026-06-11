@@ -64,10 +64,16 @@ $PrefixFwd = $InstallPrefix -replace '\\', '/'
 $BuildDir = Join-Path $RepoRoot 'build-deps/_libshout-build'
 
 Write-Host "==> Configuring (MSVC + vcpkg static-md deps)"
+# VCPKG_MANIFEST_DIR points at the repo root so manifest mode installs the
+# ogg/vorbis/openssl/pthreads declared in the root vcpkg.json (the libshout
+# build source dir has no manifest of its own).
+$RepoRootFwd = $RepoRoot -replace '\\', '/'
 cmake -S "$Here" -B "$BuildDir" -A x64 `
     "-DLIBSHOUT_SRC=$SrcFwd" `
     "-DCMAKE_TOOLCHAIN_FILE=$Toolchain" `
     "-DVCPKG_TARGET_TRIPLET=x64-windows-static-md" `
+    "-DVCPKG_MANIFEST_DIR=$RepoRootFwd" `
+    "-DVCPKG_MANIFEST_INSTALL=ON" `
     "-DCMAKE_INSTALL_PREFIX=$PrefixFwd"
 if ( $LASTEXITCODE -ne 0 ) { throw 'libshout configure failed' }
 
