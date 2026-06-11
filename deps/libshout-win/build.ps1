@@ -93,9 +93,20 @@ $kb = [math]::Round((Get-Item $Lib).Length / 1KB)
 Write-Host "==> shout.lib installed: $Lib ($kb KB)"
 
 # TLS sanity check: shout_tls_new only exists when HAVE_OPENSSL compiled in
-# (tls.c wraps its body in #ifdef HAVE_OPENSSL).  Analogous to the macOS
-# build's nm grep.  dumpbin ships with the MSVC toolchain on PATH at this point.
-$symbols = & dumpbin /SYMBOLS $Lib 2>$null | Select-String 'shout_tls_new'
+# (tls.c wraps its body in #ifdef HAVE_OPENSSL).  Analogous to the macOS build's
+# nm grep.  dumpbin isn't on the bare-pwsh PATH (it needs the VS dev env), so
+# locate it via vswhere.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+$dumpbin = $null
+if ( Test-Path $vswhere ) {
+    $dumpbin = & $vswhere -latest -products * -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' |
+        Select-Object -First 1
+}
+if ( -not $dumpbin ) {
+    $dumpbin = (Get-Command dumpbin -ErrorAction SilentlyContinue).Source
+}
+if ( -not $dumpbin ) { throw 'dumpbin not found (needed for the TLS symbol check)' }
+$symbols = & $dumpbin /SYMBOLS $Lib 2>$null | Select-String 'shout_tls_new'
 if ( -not $symbols ) {
     throw 'shout.lib has no shout_tls_new symbol — TLS (HAVE_OPENSSL) did not compile in'
 }
