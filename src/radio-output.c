@@ -109,6 +109,7 @@ static void *radio_output_create(obs_data_t *settings, obs_output_t *output)
 
 #ifdef HAVE_LIBSHOUT
 static void connect_cancel(struct radio_output *context);
+static void shout_handoff_cleanup(shout_t *handle);
 #endif
 
 /*
@@ -185,9 +186,15 @@ static void radio_output_teardown(struct radio_output *context)
 		if (flush_ret != SHOUTERR_SUCCESS)
 			obs_log(LOG_WARNING, "shout_send() flush failed: %s", shout_get_error(context->shout));
 	}
+	/* Detached close (#80): libshout's graceful protocol-close writes a
+	 * goodbye message, and against a half-dead peer (no RST yet) that send
+	 * blocks until the kernel TCP timeout (~60 s on macOS).  The send-thread
+	 * failure path has used shout_handoff_cleanup since PR #21; the teardown
+	 * path kept an inline close because it usually runs against a healthy
+	 * connection — but "usually" beachballs OBS shutdown the day the peer
+	 * died quietly.  Hand the close to the detached thread unconditionally. */
 	if (context->shout) {
-		shout_close(context->shout);
-		shout_free(context->shout);
+		shout_handoff_cleanup(context->shout);
 		context->shout = NULL;
 	}
 #endif /* HAVE_LIBSHOUT */
