@@ -18,6 +18,12 @@
 #ifndef LIBSHOUT_MSVC_CONFIG_H
 #define LIBSHOUT_MSVC_CONFIG_H
 
+/* POSIX → MSVC shims reaching every TU (config.h is force-included first via
+ * HAVE_CONFIG_H).  getpid() (proto_roaraudio.c) is _getpid() from <process.h>;
+ * clang-cl rejects the implicit declaration outright (C99+). */
+#include <process.h>
+#define getpid _getpid
+
 /* Version (autotools derives these from configure.ac's libshout_{major,minor,micro};
  * shout.c reads them in shout_get_library_version). */
 #define VERSION "2.4.6"
