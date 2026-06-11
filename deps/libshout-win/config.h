@@ -18,9 +18,13 @@
 #ifndef LIBSHOUT_MSVC_CONFIG_H
 #define LIBSHOUT_MSVC_CONFIG_H
 
-/* Version */
+/* Version (autotools derives these from configure.ac's libshout_{major,minor,micro};
+ * shout.c reads them in shout_get_library_version). */
 #define VERSION "2.4.6"
 #define PACKAGE_VERSION "2.4.6"
+#define LIBSHOUT_MAJOR 2
+#define LIBSHOUT_MINOR 4
+#define LIBSHOUT_MICRO 6
 
 /* Codecs compiled in (speex/theora deliberately excluded — see CMakeLists.txt) */
 #define HAVE_OGG 1
@@ -29,10 +33,11 @@
 /* TLS */
 #define HAVE_OPENSSL 1
 
-/* Threads (PThreads4W from vcpkg).  The PTHREAD_* enum constants come from
- * <pthread.h> itself once __CLEANUP_C is defined (see CMakeLists.txt). */
+/* Threads (PThreads4W from vcpkg).  The PTHREAD_* enum constants (including
+ * PTHREAD_CREATE_JOINABLE) come from <pthread.h> itself once __CLEANUP_C is
+ * defined (see CMakeLists.txt) — do NOT #define them here, that would rewrite
+ * pthread.h's `enum { PTHREAD_CREATE_JOINABLE = 0, ... }` and break the build. */
 #define HAVE_PTHREAD 1
-#define PTHREAD_CREATE_JOINABLE 1
 
 /* C runtime / headers present on MSVC */
 #define HAVE_STDINT_H 1

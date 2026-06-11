@@ -13,13 +13,21 @@
 #define LIBSHOUT_WIN_COMPAT_H
 
 #ifdef _WIN32
+/* winsock2.h before ws2tcpip.h (which provides socklen_t, struct in6_addr,
+ * getaddrinfo — used by sock.c/resolver.c but NOT pulled in by winsock2.h
+ * alone). Include guards make this safe even where sock.h already included
+ * winsock2.h first. */
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <BaseTsd.h> /* SSIZE_T */
 
 /* MSVC has no ssize_t; SSIZE_T is the Win32 SDK's signed size type (64-bit on
- * x64, matching POSIX ssize_t semantics).  Guard against PThreads4W / CRT
- * headers that may also define it. */
-#ifndef _SSIZE_T_DEFINED
+ * x64, matching POSIX ssize_t semantics).  Coordinate with PThreads4W / CRT
+ * headers that may also define it: check (and set) every common guard so
+ * whichever header is included first wins and the other skips. */
+#if !defined(_SSIZE_T_DEFINED) && !defined(_SSIZE_T_) && !defined(__ssize_t_defined)
 #define _SSIZE_T_DEFINED
+#define _SSIZE_T_
 typedef SSIZE_T ssize_t;
 #endif
 
