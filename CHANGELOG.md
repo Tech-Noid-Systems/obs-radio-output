@@ -3,6 +3,20 @@
 All notable changes to obs-radio-output are documented here.
 Format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.2.0-beta2] - 2026-06-12
+
+### Added
+
+- **windows:** Link vendored libshout into the plugin build (#37) ([ca39549](https://github.com/tech-noid-systems/obs-radio-output/commit/ca395494ef0eab412f2bf63189ae8866d6d5b3c5))
+- **windows:** Link libshout deps from its prefix, drop plugin vcpkg toolchain ([d7c3bda](https://github.com/tech-noid-systems/obs-radio-output/commit/d7c3bdad7f8beda72eadc803e177f8a3ced25037))
+- **ui:** Explain SHOUTcast port+1 offset via a port-field tooltip (#63) ([761e1f1](https://github.com/tech-noid-systems/obs-radio-output/commit/761e1f136142ed4483ca93b64a78d12cc83b7804))
+- **windows:** Enable MP3/Opus/Vorbis codecs via bundled vcpkg libs (#37) ([06bf35b](https://github.com/tech-noid-systems/obs-radio-output/commit/06bf35bf73885fe82688cb1f0551df9fc6f90bdd))
+
+### Documentation
+
+- Update CHANGELOG.md for 0.2.0-beta1 ([56aafbf](https://github.com/tech-noid-systems/obs-radio-output/commit/56aafbfd7227f494777b2b13cd8929b72dd54eb2))
+- **windows:** Refresh build instructions for the from-source libshout flow ([7383e88](https://github.com/tech-noid-systems/obs-radio-output/commit/7383e88a732fac15f32ef3b98c154ff6a9ba2e1b))
+
 ## [0.2.0-beta1] - 2026-06-11
 
 ### Added
