@@ -1,0 +1,27 @@
+diff -ruN a/src/common/httpp/encoding.c b/src/common/httpp/encoding.c
+--- a/src/common/httpp/encoding.c	2021-09-14 07:26:17.000000000 -0700
++++ b/src/common/httpp/encoding.c	2026-06-11 00:12:59.348190039 -0700
+@@ -27,7 +27,11 @@
+ #endif
+ 
+ #include <sys/types.h>
++#ifdef _WIN32
++#include <compat.h>
++#else
+ #include <strings.h>
++#endif
+ #include <string.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+diff -ruN a/src/connection.c b/src/connection.c
+--- a/src/connection.c	2022-04-10 03:10:14.000000000 -0700
++++ b/src/connection.c	2026-06-11 00:12:59.348348790 -0700
+@@ -29,6 +29,8 @@
+ 
+ #ifdef HAVE_SYS_SELECT_H
+ #   include <sys/select.h>
++#elif defined(_WIN32)
++#   include <winsock2.h>
+ #else
+ #   include <sys/time.h>
+ #   include <sys/types.h>

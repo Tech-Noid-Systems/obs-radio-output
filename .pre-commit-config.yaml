@@ -12,7 +12,11 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        # .patch files are exact-byte artifacts: blank context lines are a single
+        # space, and whitespace fixups corrupt the hunk so `patch` may reject it.
+        exclude: \.patch$
       - id: end-of-file-fixer
+        exclude: \.patch$
       - id: check-added-large-files
       - id: check-yaml
         # .clang-format uses multi-document YAML (--- separators) by convention.

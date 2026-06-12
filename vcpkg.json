@@ -1,0 +1,11 @@
+{
+  "name": "obs-radio-output",
+  "version-string": "0.2.0",
+  "description": "Windows (MSVC) build dependencies. Consumed only when the build is configured with the vcpkg toolchain (Windows CI); inert on macOS/Linux, which source these libraries from obs-deps / apt / from-source builds. ogg+vorbis+openssl+pthreads back the vendored libshout build (deps/libshout-win); codec libraries are added alongside their encoders.",
+  "dependencies": [
+    "libogg",
+    "libvorbis",
+    "openssl",
+    "pthreads"
+  ]
+}

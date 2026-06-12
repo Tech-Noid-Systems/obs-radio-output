@@ -26,15 +26,34 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/deps/obs-websocket-api")
 
 if(WIN32)
-  # MSVC cannot link MinGW-built libraries; make libshout optional on Windows
-  # until MSVC-compatible binaries are available.
-  find_package(LibShout QUIET)
-  if(LibShout_FOUND)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
-    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
-  else()
-    message(WARNING "LibShout not found — Windows streaming support requires libshout at build time")
-  endif()
+  # libshout on Windows is the vendored MSVC static build (deps/libshout-win,
+  # issue #37).  Its install prefix (LibShout_ROOT) is self-contained: shout.lib
+  # plus the bundled vcpkg static deps (openssl/ogg/vorbis/pthreads).  shout.lib
+  # is a static archive that leaves those symbols unresolved, so the plugin links
+  # them from the same prefix — no vcpkg toolchain needed in the plugin build.
+  find_package(LibShout REQUIRED)
+  set(_libshout_lib "${LibShout_ROOT}/lib")
+  find_library(RADIO_SSL_LIBRARY NAMES libssl ssl PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_CRYPTO_LIBRARY NAMES libcrypto crypto PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_OGG_LIBRARY NAMES ogg PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_VORBIS_LIBRARY NAMES vorbis PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  find_library(RADIO_PTHREADS_LIBRARY NAMES pthreadVC3 pthreadVC2 PATHS "${_libshout_lib}" NO_DEFAULT_PATH REQUIRED)
+  target_link_libraries(
+    ${CMAKE_PROJECT_NAME}
+    PRIVATE
+      LibShout::LibShout
+      ${RADIO_SSL_LIBRARY}
+      ${RADIO_CRYPTO_LIBRARY}
+      ${RADIO_OGG_LIBRARY}
+      ${RADIO_VORBIS_LIBRARY}
+      ${RADIO_PTHREADS_LIBRARY}
+      ws2_32
+      crypt32
+      bcrypt
+      user32
+      advapi32
+  )
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_LIBSHOUT)
 else()
   find_package(LibShout REQUIRED)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE LibShout::LibShout)
