@@ -21,7 +21,8 @@ endif()
 
 find_library(
   LibLame_LIBRARY
-  NAMES mp3lame libmp3lame
+  # libmp3lame-static: vcpkg's name for the static LAME on Windows (x64-windows-static-md).
+  NAMES mp3lame libmp3lame libmp3lame-static
   PATHS
     /usr/lib
     /usr/local/lib
