@@ -32,6 +32,18 @@ find_library(
     $ENV{LIBLAME_LIB}
 )
 
+# vcpkg splits LAME's bundled mpglib decoder into a separate libmpghip-static;
+# libmp3lame-static references it (InitMP3 etc.), so it must be linked alongside.
+# Only present in the vcpkg static build; absent (and unneeded) elsewhere.
+find_library(
+  LibLame_HIP_LIBRARY
+  NAMES mpghip libmpghip-static
+  PATHS
+    ${LibLame_ROOT}/lib
+    $ENV{LIBLAME_ROOT}/lib
+    $ENV{LIBLAME_LIB}
+)
+
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(LibLame REQUIRED_VARS LibLame_LIBRARY LibLame_INCLUDE_DIR)
 
@@ -43,5 +55,8 @@ if(LibLame_FOUND AND NOT TARGET LibLame::LibLame)
       IMPORTED_LOCATION "${LibLame_LIBRARY}"
       INTERFACE_INCLUDE_DIRECTORIES "${LibLame_INCLUDE_DIR}"
   )
+  if(LibLame_HIP_LIBRARY)
+    set_target_properties(LibLame::LibLame PROPERTIES INTERFACE_LINK_LIBRARIES "${LibLame_HIP_LIBRARY}")
+  endif()
 endif()
 # gersemi: on
