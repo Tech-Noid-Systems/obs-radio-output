@@ -136,8 +136,10 @@ cmake --install build_linux_x86_64 --config RelWithDebInfo \
 
 ### Windows
 
-**Prerequisites:** Windows 10/11 x64 with Visual Studio 2022 (`Desktop development with C++`
-workload) and `winget`. MSYS2 and libshout will be installed automatically by the setup script.
+**Prerequisites:** Windows 10/11 x64 with Visual Studio 2022 — the `Desktop development with C++`
+workload **and** the `C++ Clang tools for Windows` component (libshout is built with clang-cl) —
+plus `winget`. libshout and its codec dependencies are built from source automatically by the
+setup script (clang-cl + the vcpkg bundled with Visual Studio); no MSYS2 needed.
 
 ```powershell
 git clone https://github.com/tech-noid-systems/obs-radio-output.git
@@ -154,9 +156,10 @@ cmake --install build_x64 --config RelWithDebInfo `
       --prefix "$env:APPDATA\obs-studio\plugins\obs-radio-output"
 ```
 
-> **Note:** Streaming to Icecast/SHOUTcast is not yet functional on Windows. The plugin will
-> load in OBS but the streaming output requires MSVC-compatible libshout binaries — tracked as
-> [#37](https://github.com/tech-noid-systems/obs-radio-output/issues/37), contributions welcome.
+> **Note:** Windows builds the **full streaming stack** — libshout (with TLS) and the MP3, Opus,
+> and Vorbis encoders. End-to-end streaming to Icecast/SHOUTcast has **not yet been verified** on a
+> Windows test machine; if you run a stream from Windows, please report results on
+> [#37](https://github.com/tech-noid-systems/obs-radio-output/issues/37).
 
 ## Usage
 
