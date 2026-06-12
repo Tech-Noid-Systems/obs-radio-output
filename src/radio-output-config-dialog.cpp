@@ -287,6 +287,14 @@ void RadioOutputConfigDialog::onProtocolChanged(int /*index*/)
 	const bool is_shoutcast = (protocol_->currentData().toInt() == RADIO_PROTOCOL_SHOUTCAST);
 	server_form_->setRowVisible(mount_row_index_, !is_shoutcast);
 	server_form_->setRowVisible(tls_row_index_, !is_shoutcast);
+
+	/* libshout bumps the port by +1 for SHOUTcast v1 / ICY (connection.c:571 —
+	 * "enter the listener port, the source goes to port + 1", the Winamp
+	 * convention).  Surface that on the port field so users don't hit
+	 * SHOUTERR_NOCONNECT against the wrong port; revert to a neutral hint for
+	 * Icecast, where the port is used verbatim. */
+	port_->setToolTip(obs_module_text(is_shoutcast ? "RadioOutput.Server.Port.TooltipSHOUTcast"
+						       : "RadioOutput.Server.Port.TooltipIcecast"));
 }
 
 void RadioOutputConfigDialog::onCodecChanged(int /*index*/)
