@@ -97,12 +97,21 @@ Write-Host "==> shout.lib installed: $Lib ($kb KB)"
 # bundling them lets the plugin link everything from one prefix WITHOUT pulling
 # the vcpkg toolchain into the plugin build (which fights the OBS template's
 # obs-deps discovery).  See the WIN32 branch in the top-level CMakeLists.txt.
-$VcpkgLib = Join-Path $BuildDir 'vcpkg_installed/x64-windows-static-md/lib'
+$VcpkgRootDir = Join-Path $BuildDir 'vcpkg_installed/x64-windows-static-md'
+$VcpkgLib = Join-Path $VcpkgRootDir 'lib'
 if ( -not (Test-Path $VcpkgLib) ) { throw "vcpkg install libs not found at $VcpkgLib" }
 $destLib = Join-Path $InstallPrefix 'lib'
 Copy-Item "$VcpkgLib/*.lib" $destLib -Force
 Write-Host "==> bundled vcpkg dep libs into ${destLib}:"
 Get-ChildItem "$destLib/*.lib" | ForEach-Object { Write-Host "     $($_.Name)" }
+
+# Bundle the dep headers too (lame/, opus/, ogg/, vorbis/, openssl/) so the
+# plugin's encoders can include them off the same prefix.  The plugin's
+# Find{LibLame,LibOpus,LibOgg,LibVorbis} modules look under <prefix>/include +
+# <prefix>/lib when handed <Lib>_ROOT (see Build-Windows.ps1).
+$destInc = Join-Path $InstallPrefix 'include'
+Copy-Item "$VcpkgRootDir/include/*" $destInc -Recurse -Force
+Write-Host "==> bundled vcpkg dep headers into ${destInc}"
 
 # TLS sanity check: shout_tls_new only exists when HAVE_OPENSSL compiled in
 # (tls.c wraps its body in #ifdef HAVE_OPENSSL).  Analogous to the macOS build's
