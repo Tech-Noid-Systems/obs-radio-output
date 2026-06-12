@@ -56,7 +56,16 @@ function Build {
     Log-Group "Building vendored libshout..."
     Invoke-External pwsh -NoProfile -File "${ProjectRoot}/deps/libshout-win/build.ps1" -InstallPrefix $LibShoutPrefix
 
-    $CmakeArgs = @('--preset', "windows-ci-${Target}", "-DLibShout_ROOT=${LibShoutPrefix}")
+    # One self-contained prefix carries libshout + the codec libs/headers; point
+    # every Find<Lib>_ROOT at it so the plugin's MP3/Opus/Vorbis encoders light up.
+    $CmakeArgs = @(
+        '--preset', "windows-ci-${Target}"
+        "-DLibShout_ROOT=${LibShoutPrefix}"
+        "-DLibLame_ROOT=${LibShoutPrefix}"
+        "-DLibOpus_ROOT=${LibShoutPrefix}"
+        "-DLibOgg_ROOT=${LibShoutPrefix}"
+        "-DLibVorbis_ROOT=${LibShoutPrefix}"
+    )
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 
