@@ -35,7 +35,7 @@ struct radio_output *radio_output_get_active(void)
  * on parse error, or when leaving CONNECTED).  The vendor request callback
  * runs on the obs-websocket thread and reads it; an atomic_int lets that read
  * happen without locking.  -1 means "unknown" (disconnected, not yet polled,
- * or stats unparseable).  Value may be up to one poll interval (~10 s) stale.
+ * or stats unparsable).  Value may be up to one poll interval (~10 s) stale.
  *
  * Uses libobs' os_atomic_*_long rather than C11 <stdatomic.h>: MSVC only
  * enables stdatomic under /experimental:c11atomics, which the OBS Windows
@@ -282,13 +282,15 @@ void shout_apply_settings(struct radio_output *context, shout_t *shout)
 	/* Audio info: shout_sync() uses the bitrate to pace sends; without it
 	 * audiorate = 0 and shout_sync can sleep indefinitely.  Also populates
 	 * the audio_info stats on the Icecast admin page. */
-	char ai_bitrate[16], ai_samplerate[16];
+	char ai_bitrate[16];
+	char ai_samplerate[16];
 	/* Report the OUTPUT rate the encoder produces (out_samplerate), falling
 	 * back to the input rate before the encoder has initialized.  This keeps
 	 * the Icecast admin page honest when the user selects a stream samplerate
 	 * that differs from the OBS input rate (MP3 resampling). */
-	uint32_t sample_rate = context->out_samplerate ? context->out_samplerate
-						       : (context->sample_rate ? context->sample_rate : 48000);
+	uint32_t sample_rate = context->out_samplerate;
+	if (!sample_rate)
+		sample_rate = context->sample_rate ? context->sample_rate : 48000;
 	snprintf(ai_bitrate, sizeof(ai_bitrate), "%d", context->bitrate);
 	snprintf(ai_samplerate, sizeof(ai_samplerate), "%u", sample_rate);
 	shout_set_audio_info(shout, SHOUT_AI_BITRATE, ai_bitrate);
@@ -689,6 +691,7 @@ bool radio_output_emit_inband_metadata(struct radio_output *context, const char 
  * ---------------------------------------------------------------------- */
 
 #ifdef HAVE_LAME
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) — sample_rate/channels mirror the LAME API call order
 static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate, int channels, uint8_t **out_headers,
 			     size_t *out_bytes)
 {
@@ -741,10 +744,10 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 		break;
 	}
 	/* Encoding quality 0 (best/slowest) .. 9 (fastest); clamp defensively. */
-	int q = context->lame_quality;
-	if (q < 0 || q > 9)
-		q = 2;
-	lame_set_quality(context->lame_gfp, q);
+	int quality = context->lame_quality;
+	if (quality < 0 || quality > 9)
+		quality = 2;
+	lame_set_quality(context->lame_gfp, quality);
 	/* Channel mode.  num_channels above stays at the stereo input count; LAME
 	 * downmixes L+R internally when the output MPEG_mode is MONO, so the audio
 	 * callback path is unchanged. */
@@ -771,13 +774,17 @@ static bool mp3_encoder_init(struct radio_output *context, uint32_t sample_rate,
 	/* lame_get_out_samplerate() reflects LAME's final choice (it snaps to the
 	 * nearest valid MPEG rate), so report that — not the requested value. */
 	context->out_samplerate = (uint32_t)lame_get_out_samplerate(context->lame_gfp);
-	const char *mode_str = (lame_mode == MONO) ? "mono" : (lame_mode == JOINT_STEREO) ? "joint-stereo" : "stereo";
+	const char *mode_str = "stereo";
+	if (lame_mode == MONO)
+		mode_str = "mono";
+	else if (lame_mode == JOINT_STEREO)
+		mode_str = "joint-stereo";
 	if (context->out_samplerate != sample_rate)
 		obs_log(LOG_INFO, "MP3 encoder: %u Hz in -> %u Hz out (resampled), %s, q%d, %s %d kbps", sample_rate,
-			context->out_samplerate, mode_str, q, brate_mode_str, context->bitrate);
+			context->out_samplerate, mode_str, quality, brate_mode_str, context->bitrate);
 	else
-		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %s, q%d, %s %d kbps", sample_rate, mode_str, q, brate_mode_str,
-			context->bitrate);
+		obs_log(LOG_INFO, "MP3 encoder: %u Hz, %s, q%d, %s %d kbps", sample_rate, mode_str, quality,
+			brate_mode_str, context->bitrate);
 	return true;
 }
 
@@ -801,8 +808,8 @@ static int mp3_encoder_flush(struct radio_output *context, uint8_t *out, size_t 
 {
 	if (!context->lame_gfp)
 		return 0;
-	int n = lame_encode_flush(context->lame_gfp, out, (int)cap);
-	return n < 0 ? -1 : n;
+	int flushed = lame_encode_flush(context->lame_gfp, out, (int)cap);
+	return flushed < 0 ? -1 : flushed;
 }
 
 static size_t mp3_encoder_max_output_for(struct radio_output *context, size_t frames)
@@ -1053,9 +1060,9 @@ static void radio_output_raw_audio(void *data, struct audio_data *frames)
 #endif /* HAVE_LIBSHOUT */
 }
 
-static bool reconnect_toggled(obs_properties_t *props, obs_property_t *p, obs_data_t *settings)
+static bool reconnect_toggled(obs_properties_t *props, obs_property_t *property, obs_data_t *settings)
 {
-	UNUSED_PARAMETER(p);
+	UNUSED_PARAMETER(property);
 	bool enabled = obs_data_get_bool(settings, SETTING_RECONNECT);
 	obs_property_set_visible(obs_properties_get(props, SETTING_RECONNECT_DELAY), enabled);
 	obs_property_set_visible(obs_properties_get(props, SETTING_RECONNECT_MAX), enabled);
