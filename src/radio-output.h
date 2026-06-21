@@ -135,7 +135,7 @@ struct radio_output {
 	 * lives in send-buf.{c,h}; send_mutex serializes producer/consumer access
 	 * to it (see send_buf_push and encoder_send_thread).
 	 */
-#define SEND_BUF_CAPACITY (256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
+#define SEND_BUF_CAPACITY ((size_t)256 * 1024) /* 256 KB ≈ 14 s at 128 kbps */
 	struct radio_send_buf send_buf;
 	pthread_mutex_t send_mutex;
 	pthread_cond_t send_cond;
