@@ -43,3 +43,7 @@
 
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
+
+# clangd / IDE compile database (local only)
+/build-clangd
+/compile_commands.json
